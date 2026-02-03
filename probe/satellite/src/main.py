@@ -17,7 +17,7 @@ from typing import Optional
 import httpx
 import nats
 import structlog
-from gvm.connections import UnixSocketConnection
+from gvm.connections import TLSConnection
 from gvm.protocols.gmp import Gmp
 from gvm.transforms import EtreeTransform
 from pydantic import BaseModel
@@ -60,16 +60,23 @@ class ScanResult(BaseModel):
 
 
 class GVMClient:
-    """Cliente para interação com GVM via GMP"""
+    """Cliente para interação com GVM via GMP (protocolo XML sobre TLS)"""
 
-    def __init__(self, socket_path: str = "/var/run/gvmd/gvmd.sock"):
-        self.socket_path = socket_path
+    def __init__(self):
+        # immauss/openvas expõe gvmd na porta 9390 via TCP/TLS
+        self.host = os.getenv("GVM_HOST", "openvas")
+        self.port = int(os.getenv("GVM_PORT", "9390"))
         self.username = os.getenv("GVM_USERNAME", "admin")
         self.password = os.getenv("GVM_PASSWORD", "admin")
+        self.timeout = int(os.getenv("GVM_TIMEOUT", "300"))
 
     def _connect(self):
-        """Cria conexão com GVM"""
-        connection = UnixSocketConnection(path=self.socket_path)
+        """Cria conexão TLS com GVM na porta 9390"""
+        connection = TLSConnection(
+            hostname=self.host,
+            port=self.port,
+            timeout=self.timeout
+        )
         transform = EtreeTransform()
         return Gmp(connection=connection, transform=transform)
 
