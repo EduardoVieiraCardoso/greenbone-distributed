@@ -2,18 +2,18 @@
 GVM Client - Interface com Greenbone Vulnerability Manager via GMP
 
 Este módulo encapsula toda a comunicação com o GVM usando o protocolo GMP.
+Compatível com python-gvm >= 24.0
 """
 
 import os
-import ssl
 from typing import Optional
 from xml.etree import ElementTree as ET
 from dataclasses import dataclass
 from enum import Enum
+from contextlib import contextmanager
 
 from gvm.connections import TLSConnection
 from gvm.protocols.gmp import Gmp
-from gvm.transforms import EtreeTransform
 import structlog
 
 log = structlog.get_logger()
@@ -53,23 +53,6 @@ class PortList:
 
 
 @dataclass
-class Target:
-    """Target criado no GVM"""
-    id: str
-    name: str
-    hosts: str
-
-
-@dataclass
-class Task:
-    """Task de scan no GVM"""
-    id: str
-    name: str
-    status: ScanStatus
-    progress: int
-
-
-@dataclass
 class VulnSummary:
     """Resumo de vulnerabilidades encontradas"""
     hosts_scanned: int = 0
@@ -85,6 +68,10 @@ class GVMClient:
     
     O GMP é um protocolo XML sobre TLS que permite controle total do GVM.
     A imagem immauss/openvas expõe o gvmd na porta 9390.
+    
+    Uso:
+        with GVMClient() as gvm:
+            configs = gvm.get_scan_configs()
     """
 
     def __init__(
@@ -101,11 +88,11 @@ class GVMClient:
         self.password = password or os.getenv("GVM_PASSWORD", "admin")
         self.timeout = timeout or int(os.getenv("GVM_TIMEOUT", "300"))
         
-        self._gmp: Optional[Gmp] = None
-        self._connection: Optional[TLSConnection] = None
+        self._gmp = None
+        self._connection = None
 
-    def connect(self) -> "GVMClient":
-        """Estabelece conexão TLS com o GVM"""
+    def __enter__(self):
+        """Conecta ao GVM usando context manager"""
         log.info("gvm_connecting", host=self.host, port=self.port)
         
         self._connection = TLSConnection(
@@ -114,8 +101,9 @@ class GVMClient:
             timeout=self.timeout
         )
         
-        transform = EtreeTransform()
-        self._gmp = Gmp(connection=self._connection, transform=transform)
+        # Usar GMP como context manager (API nova)
+        self._gmp_ctx = Gmp(connection=self._connection)
+        self._gmp = self._gmp_ctx.__enter__()
         
         # Autenticar
         self._gmp.authenticate(self.username, self.password)
@@ -123,27 +111,21 @@ class GVMClient:
         log.info("gvm_connected", host=self.host)
         return self
 
-    def disconnect(self):
-        """Fecha conexão com o GVM"""
-        if self._connection:
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Desconecta do GVM"""
+        if self._gmp_ctx:
             try:
-                self._connection.disconnect()
+                self._gmp_ctx.__exit__(exc_type, exc_val, exc_tb)
             except Exception:
                 pass
         self._gmp = None
         self._connection = None
 
-    def __enter__(self):
-        return self.connect()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.disconnect()
-
     @property
-    def gmp(self) -> Gmp:
+    def gmp(self):
         """Retorna instância GMP ativa"""
         if not self._gmp:
-            raise RuntimeError("GVM not connected. Call connect() first.")
+            raise RuntimeError("GVM not connected. Use 'with GVMClient() as gvm:'")
         return self._gmp
 
     # =========================================================================
@@ -155,10 +137,12 @@ class GVMClient:
         response = self.gmp.get_scan_configs()
         configs = []
         for config in response.findall(".//config"):
-            configs.append(ScanConfig(
-                id=config.get("id"),
-                name=config.find("name").text
-            ))
+            name_elem = config.find("name")
+            if name_elem is not None and name_elem.text:
+                configs.append(ScanConfig(
+                    id=config.get("id"),
+                    name=name_elem.text
+                ))
         return configs
 
     def get_scan_config_id(self, name: str = "Full and fast") -> str:
@@ -178,10 +162,12 @@ class GVMClient:
         response = self.gmp.get_scanners()
         scanners = []
         for scanner in response.findall(".//scanner"):
-            scanners.append(Scanner(
-                id=scanner.get("id"),
-                name=scanner.find("name").text
-            ))
+            name_elem = scanner.find("name")
+            if name_elem is not None and name_elem.text:
+                scanners.append(Scanner(
+                    id=scanner.get("id"),
+                    name=name_elem.text
+                ))
         return scanners
 
     def get_scanner_id(self, name: str = "OpenVAS Default") -> str:
@@ -201,29 +187,19 @@ class GVMClient:
         response = self.gmp.get_port_lists()
         port_lists = []
         for pl in response.findall(".//port_list"):
-            port_lists.append(PortList(
-                id=pl.get("id"),
-                name=pl.find("name").text
-            ))
+            name_elem = pl.find("name")
+            if name_elem is not None and name_elem.text:
+                port_lists.append(PortList(
+                    id=pl.get("id"),
+                    name=name_elem.text
+                ))
         return port_lists
 
     def create_port_list(self, name: str, ports: list[int]) -> str:
-        """
-        Cria uma port list customizada.
-        
-        Args:
-            name: Nome da port list
-            ports: Lista de portas (ex: [22, 80, 443])
-            
-        Returns:
-            ID da port list criada
-        """
-        # Formato: T:22,T:80,T:443 (T = TCP)
+        """Cria uma port list customizada"""
         port_range = ",".join(f"T:{p}" for p in ports)
-        
         log.info("creating_port_list", name=name, ports=ports)
         response = self.gmp.create_port_list(name=name, port_range=port_range)
-        
         port_list_id = response.get("id")
         log.info("port_list_created", id=port_list_id)
         return port_list_id
@@ -236,23 +212,8 @@ class GVMClient:
     # Targets
     # =========================================================================
     
-    def create_target(
-        self,
-        name: str,
-        hosts: str,
-        port_list_id: Optional[str] = None
-    ) -> str:
-        """
-        Cria um target (alvo) para scan.
-        
-        Args:
-            name: Nome do target
-            hosts: IP, range ou hostname (ex: "192.168.1.0/24", "10.0.0.5")
-            port_list_id: ID da port list (opcional, usa default se None)
-            
-        Returns:
-            ID do target criado
-        """
+    def create_target(self, name: str, hosts: str, port_list_id: Optional[str] = None) -> str:
+        """Cria um target (alvo) para scan"""
         log.info("creating_target", name=name, hosts=hosts)
         
         kwargs = {"name": name, "hosts": [hosts]}
@@ -261,7 +222,6 @@ class GVMClient:
         
         response = self.gmp.create_target(**kwargs)
         target_id = response.get("id")
-        
         log.info("target_created", id=target_id)
         return target_id
 
@@ -273,25 +233,8 @@ class GVMClient:
     # Tasks
     # =========================================================================
     
-    def create_task(
-        self,
-        name: str,
-        target_id: str,
-        config_id: Optional[str] = None,
-        scanner_id: Optional[str] = None
-    ) -> str:
-        """
-        Cria uma task de scan.
-        
-        Args:
-            name: Nome da task
-            target_id: ID do target a escanear
-            config_id: ID da scan config (usa "Full and fast" se None)
-            scanner_id: ID do scanner (usa "OpenVAS Default" se None)
-            
-        Returns:
-            ID da task criada
-        """
+    def create_task(self, name: str, target_id: str, config_id: Optional[str] = None, scanner_id: Optional[str] = None) -> str:
+        """Cria uma task de scan"""
         if not config_id:
             config_id = self.get_scan_config_id("Full and fast")
         if not scanner_id:
@@ -311,15 +254,9 @@ class GVMClient:
         return task_id
 
     def start_task(self, task_id: str) -> str:
-        """
-        Inicia uma task de scan.
-        
-        Returns:
-            ID do report que será gerado
-        """
+        """Inicia uma task de scan, retorna report_id"""
         log.info("starting_task", task_id=task_id)
         response = self.gmp.start_task(task_id)
-        
         report_id = response.find("report_id").text
         log.info("task_started", task_id=task_id, report_id=report_id)
         return report_id
@@ -329,12 +266,7 @@ class GVMClient:
         self.gmp.stop_task(task_id)
 
     def get_task_status(self, task_id: str) -> tuple[ScanStatus, int]:
-        """
-        Obtém status e progresso de uma task.
-        
-        Returns:
-            Tuple de (status, progresso em %)
-        """
+        """Obtém status e progresso de uma task"""
         response = self.gmp.get_task(task_id)
         
         status_text = response.find(".//status").text
@@ -357,19 +289,14 @@ class GVMClient:
     # =========================================================================
     
     def get_report_xml(self, report_id: str) -> str:
-        """
-        Obtém relatório em formato XML.
-        
-        Returns:
-            String XML do relatório
-        """
+        """Obtém relatório em formato XML"""
         log.info("getting_report", report_id=report_id)
         
-        # Buscar ID do formato XML
         formats = self.gmp.get_report_formats()
         xml_format_id = None
         for fmt in formats.findall(".//report_format"):
-            if fmt.find("name").text == "XML":
+            name_elem = fmt.find("name")
+            if name_elem is not None and name_elem.text == "XML":
                 xml_format_id = fmt.get("id")
                 break
         
@@ -389,22 +316,14 @@ class GVMClient:
         return ""
 
     def parse_report_summary(self, report_xml: str) -> VulnSummary:
-        """
-        Extrai resumo de vulnerabilidades do XML do relatório.
-        
-        Returns:
-            VulnSummary com contagem de vulnerabilidades
-        """
+        """Extrai resumo de vulnerabilidades do XML"""
         summary = VulnSummary()
         
         try:
             root = ET.fromstring(report_xml)
-            
-            # Contar hosts
             hosts = root.findall(".//host")
             summary.hosts_scanned = len(hosts)
             
-            # Contar vulnerabilidades por severidade
             results = root.findall(".//result")
             for result in results:
                 severity_elem = result.find(".//severity")
@@ -418,83 +337,7 @@ class GVMClient:
                         summary.vulns_low += 1
                     else:
                         summary.vulns_log += 1
-                        
         except ET.ParseError as e:
             log.error("report_parse_error", error=str(e))
         
         return summary
-
-    # =========================================================================
-    # High-level scan operations
-    # =========================================================================
-    
-    def run_full_scan(
-        self,
-        job_id: str,
-        target_hosts: str,
-        ports: Optional[list[int]] = None
-    ) -> tuple[str, str, Optional[str]]:
-        """
-        Executa um scan completo.
-        
-        Cria os recursos necessários (target, port_list, task) e inicia o scan.
-        
-        Args:
-            job_id: ID do job (usado para nomear recursos)
-            target_hosts: Hosts a escanear
-            ports: Lista de portas (None = todas)
-            
-        Returns:
-            Tuple de (task_id, report_id, port_list_id ou None)
-        """
-        port_list_id = None
-        
-        # Criar port list se especificado
-        if ports:
-            port_list_id = self.create_port_list(
-                name=f"job-{job_id}-ports",
-                ports=ports
-            )
-        
-        # Criar target
-        target_id = self.create_target(
-            name=f"job-{job_id}-target",
-            hosts=target_hosts,
-            port_list_id=port_list_id
-        )
-        
-        # Criar task
-        task_id = self.create_task(
-            name=f"job-{job_id}",
-            target_id=target_id
-        )
-        
-        # Iniciar scan
-        report_id = self.start_task(task_id)
-        
-        return task_id, report_id, port_list_id
-
-    def cleanup_scan_resources(
-        self,
-        task_id: str,
-        target_id: Optional[str] = None,
-        port_list_id: Optional[str] = None
-    ):
-        """Remove recursos criados para um scan"""
-        try:
-            if task_id:
-                self.delete_task(task_id)
-        except Exception as e:
-            log.warning("cleanup_task_failed", error=str(e))
-        
-        try:
-            if target_id:
-                self.delete_target(target_id)
-        except Exception as e:
-            log.warning("cleanup_target_failed", error=str(e))
-        
-        try:
-            if port_list_id:
-                self.delete_port_list(port_list_id)
-        except Exception as e:
-            log.warning("cleanup_port_list_failed", error=str(e))
