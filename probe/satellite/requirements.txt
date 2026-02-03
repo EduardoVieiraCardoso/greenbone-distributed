@@ -1,6 +1,20 @@
+# Greenbone Satellite Controller - Dependencies
+
+# GVM/OpenVAS integration
 gvm-tools>=24.0.0
 python-gvm>=24.0.0
+
+# NATS messaging
 nats-py>=2.6.0
+
+# HTTP client (for webhook)
 httpx>=0.25.0
+
+# Logging
 structlog>=23.2.0
+
+# Data validation
 pydantic>=2.5.0
+
+# Async utilities
+asyncio-nats-client>=0.11.0
