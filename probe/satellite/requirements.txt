@@ -1,0 +1,6 @@
+gvm-tools>=24.0.0
+python-gvm>=24.0.0
+nats-py>=2.6.0
+httpx>=0.25.0
+structlog>=23.2.0
+pydantic>=2.5.0

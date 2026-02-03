@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # ===========================================
+  # OpenVAS Scanner (immauss/openvas)
+  # ===========================================
+  openvas:
+    image: immauss/openvas:latest
+    container_name: greenbone-openvas
+    ports:
+      - "9392:9392"   # Web UI (debug only)
+    environment:
+      - PASSWORD=${GVM_PASSWORD:-admin}
+      - USERNAME=${GVM_USERNAME:-admin}
+      - RELAYHOST=${RELAY_HOST:-}
+      - SMTPPORT=${SMTP_PORT:-}
+      - AUTO_SYNC=${AUTO_SYNC:-true}
+      - HTTPS=${HTTPS:-true}
+    volumes:
+      # Dados persistentes - remover para ser totalmente efêmero
+      - openvas-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:9392/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s  # OpenVAS demora para iniciar
+
+  # ===========================================
+  # Satellite Controller - Interface com GVM
+  # ===========================================
+  satellite:
+    build:
+      context: ./satellite
+      dockerfile: Dockerfile
+    container_name: greenbone-satellite
+    depends_on:
+      openvas:
+        condition: service_healthy
+    environment:
+      - GVM_HOST=openvas
+      - GVM_PORT=9390
+      - GVM_USERNAME=${GVM_USERNAME:-admin}
+      - GVM_PASSWORD=${GVM_PASSWORD:-admin}
+      - NATS_URL=${NATS_URL}
+      - NATS_TOKEN=${NATS_TOKEN}
+      - PROBE_ID=${PROBE_ID}
+      - PROBE_LOCATION=${PROBE_LOCATION:-Unknown}
+      - CENTRAL_WEBHOOK=${CENTRAL_WEBHOOK}
+      - PROBE_TOKEN=${PROBE_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+
+  # ===========================================
+  # VoidProbe Client - Túnel para Central
+  # ===========================================
+  # voidprobe-client:
+  #   image: voidprobe-client:latest
+  #   container_name: greenbone-voidprobe-client
+  #   environment:
+  #     - VOIDPROBE_SERVER=${VOIDPROBE_SERVER}
+  #     - VOIDPROBE_TOKEN=${VOIDPROBE_TOKEN}
+  #     - LOCAL_PORT=8082  # Porta do satellite
+  #   restart: unless-stopped
+
+volumes:
+  openvas-data:
+    # Para probe totalmente efêmero, remover esta seção
+
+networks:
+  default:
+    name: greenbone-probe
