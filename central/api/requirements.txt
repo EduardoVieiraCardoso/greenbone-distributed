@@ -1,0 +1,18 @@
+# Greenbone Central API - Dependencies
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# Data Validation
+pydantic>=2.5.0
+
+# Logging
+structlog>=23.2.0
+
+# Database (optional, for more advanced features)
+# sqlalchemy>=2.0.0
+# asyncpg>=0.29.0
