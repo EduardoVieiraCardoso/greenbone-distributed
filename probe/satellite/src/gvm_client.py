@@ -6,11 +6,12 @@ Compatível com python-gvm >= 24.0
 """
 
 import os
+import time
 from typing import Optional
 from xml.etree import ElementTree as ET
 from dataclasses import dataclass
 from enum import Enum
-from contextlib import contextmanager
+from contextlib import ExitStack
 
 from gvm.connections import TLSConnection
 from gvm.protocols.gmp import Gmp
@@ -19,6 +20,23 @@ import structlog
 
 log = structlog.get_logger()
 
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+DEFAULT_HOST = "localhost"
+DEFAULT_PORT = 9390
+DEFAULT_USERNAME = "admin"
+DEFAULT_PASSWORD = "admin"
+DEFAULT_TIMEOUT = 300
+DEFAULT_RETRY_ATTEMPTS = 3
+DEFAULT_RETRY_DELAY = 5
+
+
+# =============================================================================
+# Data Classes
+# =============================================================================
 
 class ScanStatus(str, Enum):
     """Status possíveis de um scan"""
@@ -63,6 +81,10 @@ class VulnSummary:
     vulns_log: int = 0
 
 
+# =============================================================================
+# GVM Client
+# =============================================================================
+
 class GVMClient:
     """
     Cliente para comunicação com GVM via GMP (Greenbone Management Protocol).
@@ -73,6 +95,10 @@ class GVMClient:
     Uso:
         with GVMClient() as gvm:
             configs = gvm.get_scan_configs()
+    
+    Com retry automático:
+        with GVMClient(retry_attempts=5) as gvm:
+            ...
     """
 
     def __init__(
@@ -81,47 +107,117 @@ class GVMClient:
         port: Optional[int] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        retry_attempts: Optional[int] = None,
+        retry_delay: Optional[int] = None
     ):
-        self.host = host or os.getenv("GVM_HOST", "localhost")
-        self.port = port or int(os.getenv("GVM_PORT", "9390"))
-        self.username = username or os.getenv("GVM_USERNAME", "admin")
-        self.password = password or os.getenv("GVM_PASSWORD", "admin")
-        self.timeout = timeout or int(os.getenv("GVM_TIMEOUT", "300"))
+        # Carregar configuração
+        self.host = host or os.getenv("GVM_HOST")
+        self.port = port or int(os.getenv("GVM_PORT", DEFAULT_PORT))
+        self.username = username or os.getenv("GVM_USERNAME")
+        self.password = password or os.getenv("GVM_PASSWORD")
+        self.timeout = timeout or int(os.getenv("GVM_TIMEOUT", DEFAULT_TIMEOUT))
+        self.retry_attempts = retry_attempts or int(os.getenv("GVM_RETRY_ATTEMPTS", DEFAULT_RETRY_ATTEMPTS))
+        self.retry_delay = retry_delay or int(os.getenv("GVM_RETRY_DELAY", DEFAULT_RETRY_DELAY))
         
+        # Validar e aplicar defaults com warnings
+        self._validate_config()
+        
+        # Estado interno
+        self._exit_stack: Optional[ExitStack] = None
         self._gmp = None
-        self._connection = None
+
+    def _validate_config(self):
+        """Valida configuração e emite warnings para valores default"""
+        
+        # Host
+        if not self.host:
+            self.host = DEFAULT_HOST
+            log.warning("gvm_using_default_host", host=self.host, 
+                       hint="Set GVM_HOST environment variable")
+        
+        # Username
+        if not self.username:
+            self.username = DEFAULT_USERNAME
+            log.warning("gvm_using_default_username", username=self.username,
+                       hint="Set GVM_USERNAME environment variable")
+        
+        # Password - crítico!
+        if not self.password:
+            self.password = DEFAULT_PASSWORD
+            log.warning("gvm_using_default_password", 
+                       hint="Set GVM_PASSWORD environment variable for production!")
 
     def __enter__(self):
-        """Conecta ao GVM usando context manager"""
+        """Conecta ao GVM com retry automático"""
+        last_error = None
+        
+        for attempt in range(1, self.retry_attempts + 1):
+            try:
+                return self._connect()
+            except Exception as e:
+                last_error = e
+                if attempt < self.retry_attempts:
+                    log.warning("gvm_connection_failed_retrying",
+                               attempt=attempt,
+                               max_attempts=self.retry_attempts,
+                               error=str(e),
+                               retry_in=self.retry_delay)
+                    time.sleep(self.retry_delay)
+                else:
+                    log.error("gvm_connection_failed_all_attempts",
+                             attempts=self.retry_attempts,
+                             error=str(e))
+        
+        raise ConnectionError(f"Failed to connect to GVM after {self.retry_attempts} attempts: {last_error}")
+
+    def _connect(self):
+        """Estabelece conexão com GVM usando ExitStack para gerenciar contextos"""
         log.info("gvm_connecting", host=self.host, port=self.port)
         
-        self._connection = TLSConnection(
-            hostname=self.host,
-            port=self.port,
-            timeout=self.timeout
-        )
+        # Usar ExitStack para gerenciar múltiplos context managers de forma limpa
+        self._exit_stack = ExitStack()
         
-        # Usar GMP como context manager (API nova) com transform pra XML
-        transform = EtreeTransform()
-        self._gmp_ctx = Gmp(connection=self._connection, transform=transform)
-        self._gmp = self._gmp_ctx.__enter__()
-        
-        # Autenticar
-        self._gmp.authenticate(self.username, self.password)
-        
-        log.info("gvm_connected", host=self.host)
-        return self
+        try:
+            # Criar conexão TLS
+            connection = TLSConnection(
+                hostname=self.host,
+                port=self.port,
+                timeout=self.timeout
+            )
+            
+            # Criar GMP com transform para XML
+            transform = EtreeTransform()
+            gmp_ctx = Gmp(connection=connection, transform=transform)
+            
+            # Entrar no contexto do GMP e registrar no ExitStack
+            self._gmp = self._exit_stack.enter_context(gmp_ctx)
+            
+            # Autenticar
+            self._gmp.authenticate(self.username, self.password)
+            
+            log.info("gvm_connected", host=self.host)
+            return self
+            
+        except Exception as e:
+            # Limpar em caso de erro
+            self._exit_stack.close()
+            self._exit_stack = None
+            self._gmp = None
+            raise
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Desconecta do GVM"""
-        if self._gmp_ctx:
-            try:
-                self._gmp_ctx.__exit__(exc_type, exc_val, exc_tb)
-            except Exception:
-                pass
+        """Desconecta do GVM de forma limpa"""
+        if self._exit_stack:
+            self._exit_stack.close()
+            self._exit_stack = None
         self._gmp = None
-        self._connection = None
+
+    def reconnect(self):
+        """Reconecta ao GVM (útil para operações longas)"""
+        log.info("gvm_reconnecting")
+        self.__exit__(None, None, None)
+        return self.__enter__()
 
     @property
     def gmp(self):
@@ -273,7 +369,11 @@ class GVMClient:
         
         status_text = response.find(".//status").text
         progress_elem = response.find(".//progress")
-        progress = int(progress_elem.text) if progress_elem is not None and progress_elem.text else 0
+        
+        # Tratar progresso negativo (task nova retorna -1)
+        progress = 0
+        if progress_elem is not None and progress_elem.text:
+            progress = max(0, int(progress_elem.text))
         
         try:
             status = ScanStatus(status_text)
