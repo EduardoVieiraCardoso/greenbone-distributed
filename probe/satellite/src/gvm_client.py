@@ -14,6 +14,7 @@ from contextlib import contextmanager
 
 from gvm.connections import TLSConnection
 from gvm.protocols.gmp import Gmp
+from gvm.transforms import EtreeTransform
 import structlog
 
 log = structlog.get_logger()
@@ -101,8 +102,9 @@ class GVMClient:
             timeout=self.timeout
         )
         
-        # Usar GMP como context manager (API nova)
-        self._gmp_ctx = Gmp(connection=self._connection)
+        # Usar GMP como context manager (API nova) com transform pra XML
+        transform = EtreeTransform()
+        self._gmp_ctx = Gmp(connection=self._connection, transform=transform)
         self._gmp = self._gmp_ctx.__enter__()
         
         # Autenticar
