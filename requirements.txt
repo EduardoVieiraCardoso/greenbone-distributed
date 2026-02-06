@@ -1,0 +1,20 @@
+# Greenbone Adapter - Dependencies
+
+# GVM/OpenVAS integration
+python-gvm>=24.0.0
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Data validation
+pydantic>=2.5.0
+
+# Logging
+structlog>=23.2.0
+
+# Metrics
+prometheus_client>=0.20.0
+
+# Configuration
+pyyaml>=6.0

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command \"Get-ChildItem -Recurse -File | Where-Object {$_Extension -in ''.go'',''.py'',''.yml'',''.yaml'',''.sh''} | Select-Object FullName\")",
+      "Bash(cd:*)",
+      "Bash(git checkout:*)"
+    ]
+  }
+}

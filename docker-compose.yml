@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  adapter:
+    build: .
+    container_name: greenbone-adapter
+    ports:
+      - "${API_PORT:-8080}:${API_PORT:-8080}"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - GVM_HOST=${GVM_HOST:-}
+      - GVM_PORT=${GVM_PORT:-}
+      - GVM_USERNAME=${GVM_USERNAME:-}
+      - GVM_PASSWORD=${GVM_PASSWORD:-}
+      - API_PORT=${API_PORT:-}
+      - SCAN_POLL_INTERVAL=${SCAN_POLL_INTERVAL:-}
+      - LOG_LEVEL=${LOG_LEVEL:-}
+      - LOG_FORMAT=${LOG_FORMAT:-}
+    restart: unless-stopped
