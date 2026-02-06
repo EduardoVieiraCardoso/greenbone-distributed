@@ -54,8 +54,17 @@ greenbone/
 cp config.yaml.example config.yaml
 # Editar config.yaml com host/porta/credenciais do GVM
 
-# 2. Rodar
+# 2. Criar e ativar ambiente virtual
+python -m venv venv
+# Linux/Mac:
+source venv/bin/activate
+# Windows:
+venv\Scripts\activate
+
+# 3. Instalar dependências
 pip install -r requirements.txt
+
+# 4. Rodar
 python -m src.main
 ```
 
