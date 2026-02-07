@@ -323,12 +323,14 @@ class GVMSession:
 
     def create_task(self, name: str, target_id: str,
                     config_id: Optional[str] = None,
-                    scanner_id: Optional[str] = None) -> str:
+                    scanner_id: Optional[str] = None,
+                    config_name: str = "Full and fast",
+                    scanner_name: str = "OpenVAS Default") -> str:
         """Create a scan task. Returns task_id."""
         if not config_id:
-            config_id = self.get_scan_config_id("Full and fast")
+            config_id = self.get_scan_config_id(config_name)
         if not scanner_id:
-            scanner_id = self.get_scanner_id("OpenVAS Default")
+            scanner_id = self.get_scanner_id(scanner_name)
 
         log.info("creating_task", name=name, target_id=target_id)
 

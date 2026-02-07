@@ -46,10 +46,8 @@ ERROR_STATUSES = {
 
 class ScanManager:
     """
-    Manages scan lifecycle and in-memory scan tracking.
+    Manages scan lifecycle with SQLite persistence.
     Distributes scans across multiple GVM probes (least-busy selection).
-
-    Thread-safe access to scan records via a lock.
     """
 
     def __init__(self, config: AppConfig):
@@ -59,10 +57,11 @@ class ScanManager:
         for probe_cfg in config.probes:
             self._probes[probe_cfg.name] = GVMClient(probe_cfg.gvm)
             self._probe_configs[probe_cfg.name] = probe_cfg
-        self._db = ScanDatabase()
+        self._db = ScanDatabase(db_path=config.scan.db_path)
         self._lock = threading.Lock()
         self._last_probe: Optional[str] = None
         self._consecutive_count: int = 0
+        self._on_scan_complete = None  # callback hook (set by api lifespan)
         log.info("probes_loaded", probes=list(self._probes.keys()))
 
     def get_probe_client(self, probe_name: str) -> GVMClient:
@@ -79,9 +78,7 @@ class ScanManager:
     def _active_counts(self) -> dict[str, int]:
         """Count active (not completed) scans per probe."""
         counts: dict[str, int] = {name: 0 for name in self._probes}
-        for record in self._db.list_all():
-            if record.completed_at is None and record.probe_name in counts:
-                counts[record.probe_name] += 1
+        counts.update(self._db.count_active_per_probe())
         return counts
 
     def _select_probe(self) -> str:
@@ -222,6 +219,11 @@ class ScanManager:
         finally:
             SCANS_ACTIVE.dec()
             SCANS_ACTIVE_PER_PROBE.labels(probe=record.probe_name).dec()
+            if self._on_scan_complete:
+                try:
+                    await self._on_scan_complete(scan_id)
+                except Exception as e:
+                    log.warning("on_scan_complete_error", scan_id=scan_id, error=str(e))
 
     def _run_scan_blocking(self, scan_id: str):
         """
@@ -286,7 +288,9 @@ class ScanManager:
         # Create task
         task_id = gvm.create_task(
             name=f"scan-{scan_id}",
-            target_id=target_id
+            target_id=target_id,
+            config_name=self.config.scan.gvm_scan_config,
+            scanner_name=self.config.scan.gvm_scanner,
         )
         self._update_scan(scan_id, gvm_task_id=task_id)
 

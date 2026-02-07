@@ -45,6 +45,9 @@ def create_app(config: AppConfig) -> FastAPI:
             scheduler = ScanScheduler(config.source, manager._db, manager)
             bg_tasks.append(asyncio.create_task(sync.run_loop()))
             bg_tasks.append(asyncio.create_task(scheduler.run_loop()))
+            # Wire callback: when scan completes, send results to external API
+            if config.source.callback_url:
+                manager._on_scan_complete = scheduler.send_callback
             log.info("source_sync_enabled",
                      url=config.source.url,
                      sync_interval=config.source.sync_interval,

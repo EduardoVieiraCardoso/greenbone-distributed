@@ -10,7 +10,6 @@ Only active when source.url is configured.
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 import structlog
@@ -142,8 +141,7 @@ class ScanScheduler:
         if not record or not record.completed_at:
             return
 
-        # Get external_target_id from the scan
-        ext_id = getattr(record, "external_target_id", None)
+        ext_id = record.external_target_id
 
         payload = {
             "external_target_id": ext_id,

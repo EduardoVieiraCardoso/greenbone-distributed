@@ -17,7 +17,7 @@ from .models import ScanRecord, ScanType, GVMScanStatus
 
 log = structlog.get_logger()
 
-DB_PATH = "scans.db"
+DB_PATH = "scans.db"  # overridden by config.scan.db_path
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans (
@@ -149,6 +149,16 @@ class ScanDatabase:
         if not row:
             return None
         return self._row_to_record(row)
+
+    def count_active_per_probe(self) -> dict[str, int]:
+        """Count active (not completed) scans per probe via SQL."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT probe_name, COUNT(*) as cnt FROM scans
+                   WHERE completed_at IS NULL
+                   GROUP BY probe_name"""
+            ).fetchall()
+        return {row["probe_name"]: row["cnt"] for row in rows}
 
     def list_all(self) -> list[ScanRecord]:
         """List all scan records, newest first."""

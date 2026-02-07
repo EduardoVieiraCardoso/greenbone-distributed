@@ -44,6 +44,9 @@ class ScanConfig:
     cleanup_after_report: bool = True
     default_port_list: str = "All IANA assigned TCP"
     max_consecutive_same_probe: int = 3
+    gvm_scan_config: str = "Full and fast"
+    gvm_scanner: str = "OpenVAS Default"
+    db_path: str = "scans.db"
 
 
 @dataclass
