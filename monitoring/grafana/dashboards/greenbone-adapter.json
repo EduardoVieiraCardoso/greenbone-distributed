@@ -99,7 +99,7 @@
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "targets": [
         {
-          "expr": "greenbone_gvm_connection_errors_total",
+          "expr": "sum(greenbone_gvm_connection_errors_total)",
           "legendFormat": "Erros GVM"
         }
       ],
@@ -186,7 +186,7 @@
           "legendFormat": "Falhas"
         },
         {
-          "expr": "rate(greenbone_gvm_connection_errors_total[5m]) * 60",
+          "expr": "sum(rate(greenbone_gvm_connection_errors_total[5m])) * 60",
           "legendFormat": "Erros GVM"
         }
       ],
@@ -292,5 +292,5 @@
   "timezone": "browser",
   "title": "Greenbone Adapter",
   "uid": "greenbone-adapter",
-  "version": 1
+  "version": 2
 }
