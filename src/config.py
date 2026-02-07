@@ -35,6 +35,8 @@ class ProbeConfig:
 class APIConfig:
     host: str = "0.0.0.0"
     port: int = 8080
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 1440
 
 
 @dataclass
@@ -154,6 +156,8 @@ def _apply_env_overrides(config: AppConfig):
     env_map = {
         "API_HOST": (config.api, "host", str),
         "API_PORT": (config.api, "port", int),
+        "API_JWT_SECRET": (config.api, "jwt_secret", str),
+        "API_JWT_EXPIRE_MINUTES": (config.api, "jwt_expire_minutes", int),
         "SCAN_POLL_INTERVAL": (config.scan, "poll_interval", int),
         "SCAN_MAX_DURATION": (config.scan, "max_duration", int),
         "SCAN_CLEANUP": (config.scan, "cleanup_after_report", lambda v: v.lower() in ("true", "1", "yes")),

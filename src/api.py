@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 import structlog
 from prometheus_client import make_asgi_app
 
+from .auth import JWTAuthMiddleware, create_token
 from .config import AppConfig
 from .scan_manager import ScanManager
 from .target_sync import TargetSync, ScanScheduler
@@ -38,6 +39,7 @@ def create_app(config: AppConfig) -> FastAPI:
     async def lifespan(app: FastAPI):
         manager = ScanManager(config)
         app.state.scan_manager = manager
+        app.state.config = config
 
         # Scheduler always runs (checks SQLite for due targets)
         bg_tasks = []
@@ -76,6 +78,7 @@ def create_app(config: AppConfig) -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_api_route("/auth/token", generate_token, methods=["POST"])
     app.add_api_route("/health", health, methods=["GET"])
     app.add_api_route("/probes", list_probes, methods=["GET"])
     app.add_api_route("/targets", create_target, methods=["POST"])
@@ -91,12 +94,37 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app.mount("/metrics", make_asgi_app())
 
+    # JWT auth middleware — only active when jwt_secret is configured
+    if config.api.jwt_secret:
+        app.add_middleware(JWTAuthMiddleware, secret=config.api.jwt_secret)
+        log.info("jwt_auth_enabled", expire_minutes=config.api.jwt_expire_minutes)
+    else:
+        log.warning("jwt_auth_disabled", reason="api.jwt_secret not configured")
+
     return app
 
 
 # =============================================================================
 # Endpoints
 # =============================================================================
+
+async def generate_token(request: Request):
+    """Generate a JWT token. Requires jwt_secret to be configured."""
+    config: AppConfig = request.app.state.config
+    if not config.api.jwt_secret:
+        raise HTTPException(status_code=501, detail="JWT auth not configured (api.jwt_secret is empty)")
+
+    body = await request.json()
+    subject = body.get("sub", "scanhub")
+    expire = body.get("expire_minutes", config.api.jwt_expire_minutes)
+
+    token_data = create_token(
+        secret=config.api.jwt_secret,
+        expire_minutes=expire,
+        subject=subject,
+    )
+    return token_data
+
 
 async def health(request: Request):
     """Health check — tests connectivity to all GVM probes."""

@@ -30,6 +30,8 @@ probes:
 api:
   host: "0.0.0.0"
   port: 8080
+  jwt_secret: ""               # Set a secret to enable JWT auth (empty = auth disabled)
+  jwt_expire_minutes: 1440     # Token expiration in minutes (default: 24h)
 
 # Scan settings
 scan:

@@ -1,4 +1,4 @@
-# Greenbone Adapter - Dependencies
+# Scan Hub - Dependencies
 
 # GVM/OpenVAS integration
 python-gvm>=24.0.0
@@ -18,6 +18,9 @@ prometheus_client>=0.20.0
 
 # HTTP client (target sync)
 httpx>=0.27.0
+
+# Authentication
+PyJWT>=2.8.0
 
 # Configuration
 pyyaml>=6.0
