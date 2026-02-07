@@ -266,13 +266,21 @@ class ScanDatabase:
             self._conn.commit()
 
     def get_due_targets(self) -> list[dict]:
-        """Get targets that are due for scanning, ordered by criticality (highest first)."""
+        """Get targets that are due for scanning, ordered by criticality (highest first).
+
+        Excludes targets that already have an active (incomplete) scan to prevent duplicates.
+        """
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
             rows = self._conn.execute(
-                """SELECT * FROM targets
-                   WHERE enabled = 1 AND next_scan_at <= ?
-                   ORDER BY criticality_weight DESC""",
+                """SELECT t.* FROM targets t
+                   WHERE t.enabled = 1 AND t.next_scan_at <= ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM scans s
+                       WHERE s.external_target_id = t.external_id
+                       AND s.completed_at IS NULL
+                   )
+                   ORDER BY t.criticality_weight DESC""",
                 (now,)
             ).fetchall()
         return [dict(r) for r in rows]
