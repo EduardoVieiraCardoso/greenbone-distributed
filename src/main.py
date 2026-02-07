@@ -47,9 +47,10 @@ def main():
     setup_logging(config.logging.level, config.logging.format)
 
     log = structlog.get_logger()
+    probe_names = [p.name for p in config.probes]
     log.info("config_loaded",
-             gvm_host=config.gvm.host,
-             gvm_port=config.gvm.port,
+             probes=probe_names,
+             probe_count=len(config.probes),
              api_port=config.api.port,
              poll_interval=config.scan.poll_interval)
 
