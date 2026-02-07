@@ -211,20 +211,30 @@ async def create_scan(request: Request, body: ScanRequest):
 
 
 async def list_scans(request: Request):
-    """List all scans with their current GVM status."""
+    """List scans with pagination. Query params: ?limit=50&offset=0"""
     manager: ScanManager = request.app.state.scan_manager
-    scans = manager.list_scans()
+    limit = min(int(request.query_params.get("limit", 50)), 200)
+    offset = int(request.query_params.get("offset", 0))
+    scans, total = manager.list_scans(limit=limit, offset=offset)
     return {
-        "total": len(scans),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
         "scans": [
             {
                 "scan_id": s.scan_id,
                 "probe_name": s.probe_name,
+                "name": s.name,
                 "target": s.target,
                 "scan_type": s.scan_type,
+                "scan_config": s.scan_config,
                 "gvm_status": s.gvm_status,
                 "gvm_progress": s.gvm_progress,
                 "created_at": s.created_at,
+                "started_at": s.started_at,
+                "completed_at": s.completed_at,
+                "summary": s.summary,
+                "error": s.error,
             }
             for s in scans
         ]

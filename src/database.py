@@ -69,6 +69,13 @@ CREATE TABLE IF NOT EXISTS targets (
     synced_at TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_scans_completed
+    ON scans(completed_at);
+CREATE INDEX IF NOT EXISTS idx_scans_external_target
+    ON scans(external_target_id, completed_at);
+CREATE INDEX IF NOT EXISTS idx_targets_next_scan
+    ON targets(enabled, next_scan_at);
 """
 
 CRITICALITY_WEIGHTS = {
@@ -168,13 +175,45 @@ class ScanDatabase:
             ).fetchall()
         return {row["probe_name"]: row["cnt"] for row in rows}
 
-    def list_all(self) -> list[ScanRecord]:
-        """List all scan records, newest first."""
+    _LIST_COLUMNS = """scan_id, probe_name, name, target, scan_type, ports,
+        scan_config, external_target_id, gvm_target_id, gvm_task_id,
+        gvm_report_id, gvm_port_list_id, gvm_status, gvm_progress,
+        created_at, started_at, completed_at, summary, error"""
+
+    def list_all(self, limit: int = 50, offset: int = 0) -> tuple[list[ScanRecord], int]:
+        """List scan records (without report_xml), newest first. Returns (records, total)."""
         with self._lock:
+            total = self._conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0]
             rows = self._conn.execute(
-                "SELECT * FROM scans ORDER BY created_at DESC"
+                f"SELECT {self._LIST_COLUMNS} FROM scans ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset)
             ).fetchall()
-        return [self._row_to_record(r) for r in rows]
+        return [self._row_to_record_light(r) for r in rows], total
+
+    @staticmethod
+    def _row_to_record_light(row: sqlite3.Row) -> ScanRecord:
+        """Convert a listing row (without report_xml) to a ScanRecord."""
+        return ScanRecord(
+            scan_id=row["scan_id"],
+            probe_name=row["probe_name"],
+            name=row["name"],
+            target=row["target"],
+            scan_type=ScanType(row["scan_type"]),
+            ports=json.loads(row["ports"]) if row["ports"] else None,
+            scan_config=row["scan_config"],
+            external_target_id=row["external_target_id"],
+            gvm_target_id=row["gvm_target_id"],
+            gvm_task_id=row["gvm_task_id"],
+            gvm_report_id=row["gvm_report_id"],
+            gvm_port_list_id=row["gvm_port_list_id"],
+            gvm_status=row["gvm_status"],
+            gvm_progress=row["gvm_progress"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            summary=json.loads(row["summary"]) if row["summary"] else None,
+            error=row["error"],
+        )
 
     # =========================================================================
     # Targets

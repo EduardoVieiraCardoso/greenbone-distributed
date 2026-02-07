@@ -138,9 +138,9 @@ class ScanManager:
         """Get a scan record by ID."""
         return self._db.get(scan_id)
 
-    def list_scans(self) -> list[ScanRecord]:
-        """List all scan records."""
-        return self._db.list_all()
+    def list_scans(self, limit: int = 50, offset: int = 0) -> tuple[list[ScanRecord], int]:
+        """List scan records (paginated, without report_xml). Returns (records, total)."""
+        return self._db.list_all(limit=limit, offset=offset)
 
     def _update_scan(self, scan_id: str, **kwargs):
         """Update scan record fields."""
