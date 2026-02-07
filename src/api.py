@@ -11,6 +11,8 @@ Endpoints:
   GET  /metrics        — Prometheus metrics
 """
 
+import asyncio
+
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 
@@ -19,6 +21,7 @@ from prometheus_client import make_asgi_app
 
 from .config import AppConfig
 from .scan_manager import ScanManager
+from .target_sync import TargetSync, ScanScheduler
 from .models import (
     ScanRequest, ScanCreatedResponse, ScanStatusResponse,
     ScanResultResponse, ScanType,
@@ -32,9 +35,25 @@ def create_app(config: AppConfig) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.scan_manager = ScanManager(config)
+        manager = ScanManager(config)
+        app.state.scan_manager = manager
+
+        # Start target sync and scheduler if source.url is configured
+        bg_tasks = []
+        if config.source.url:
+            sync = TargetSync(config.source, manager._db)
+            scheduler = ScanScheduler(config.source, manager._db, manager)
+            bg_tasks.append(asyncio.create_task(sync.run_loop()))
+            bg_tasks.append(asyncio.create_task(scheduler.run_loop()))
+            log.info("source_sync_enabled",
+                     url=config.source.url,
+                     sync_interval=config.source.sync_interval,
+                     scheduler_interval=config.source.scheduler_interval)
+
         log.info("adapter_starting")
         yield
+        for task in bg_tasks:
+            task.cancel()
         log.info("adapter_shutdown")
 
     app = FastAPI(
@@ -46,6 +65,8 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app.add_api_route("/health", health, methods=["GET"])
     app.add_api_route("/probes", list_probes, methods=["GET"])
+    app.add_api_route("/targets", list_targets, methods=["GET"])
+    app.add_api_route("/targets/{external_id}", get_target, methods=["GET"])
     app.add_api_route("/scans", create_scan, methods=["POST"],
                       response_model=ScanCreatedResponse)
     app.add_api_route("/scans", list_scans, methods=["GET"])
@@ -90,6 +111,22 @@ async def list_probes(request: Request):
     """List all configured probes and their active scan counts."""
     manager: ScanManager = request.app.state.scan_manager
     return {"probes": manager.get_probes_status()}
+
+
+async def list_targets(request: Request):
+    """List all targets from external source with schedule info."""
+    manager: ScanManager = request.app.state.scan_manager
+    targets = manager._db.list_targets()
+    return {"total": len(targets), "targets": targets}
+
+
+async def get_target(request: Request, external_id: str):
+    """Get a single target by external ID."""
+    manager: ScanManager = request.app.state.scan_manager
+    target = manager._db.get_target(external_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target not found")
+    return target
 
 
 async def create_scan(request: Request, body: ScanRequest):

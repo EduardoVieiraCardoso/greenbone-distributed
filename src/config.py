@@ -47,6 +47,16 @@ class ScanConfig:
 
 
 @dataclass
+class SourceConfig:
+    url: str = ""
+    auth_token: str = ""
+    sync_interval: int = 300
+    callback_url: str = ""
+    timeout: int = 30
+    scheduler_interval: int = 60
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     format: str = "console"
@@ -57,6 +67,7 @@ class AppConfig:
     probes: list = field(default_factory=lambda: [ProbeConfig()])
     api: APIConfig = field(default_factory=APIConfig)
     scan: ScanConfig = field(default_factory=ScanConfig)
+    source: SourceConfig = field(default_factory=SourceConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 
@@ -79,11 +90,13 @@ def load_config(config_path: str = None) -> AppConfig:
 
         api_data = data.get("api", {})
         scan_data = data.get("scan", {})
+        source_data = data.get("source", {})
         logging_data = data.get("logging", {})
 
         config.probes = _load_probes(data)
         config.api = _build_dataclass(APIConfig, api_data, "api")
         config.scan = _build_dataclass(ScanConfig, scan_data, "scan")
+        config.source = _build_dataclass(SourceConfig, source_data, "source")
         config.logging = _build_dataclass(LoggingConfig, logging_data, "logging")
 
     # Override with environment variables
@@ -140,6 +153,12 @@ def _apply_env_overrides(config: AppConfig):
         "SCAN_MAX_DURATION": (config.scan, "max_duration", int),
         "SCAN_CLEANUP": (config.scan, "cleanup_after_report", lambda v: v.lower() in ("true", "1", "yes")),
         "SCAN_DEFAULT_PORT_LIST": (config.scan, "default_port_list", str),
+        "SOURCE_URL": (config.source, "url", str),
+        "SOURCE_AUTH_TOKEN": (config.source, "auth_token", str),
+        "SOURCE_SYNC_INTERVAL": (config.source, "sync_interval", int),
+        "SOURCE_CALLBACK_URL": (config.source, "callback_url", str),
+        "SOURCE_TIMEOUT": (config.source, "timeout", int),
+        "SOURCE_SCHEDULER_INTERVAL": (config.source, "scheduler_interval", int),
         "LOG_LEVEL": (config.logging, "level", str),
         "LOG_FORMAT": (config.logging, "format", str),
     }

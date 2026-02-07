@@ -139,6 +139,7 @@ class ScanRecord(BaseModel):
     target: str
     scan_type: ScanType
     ports: Optional[list[int]] = None
+    external_target_id: Optional[str] = None
 
     # GVM resource IDs
     gvm_target_id: Optional[str] = None

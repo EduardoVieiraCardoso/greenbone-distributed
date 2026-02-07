@@ -38,6 +38,15 @@ scan:
   cleanup_after_report: true  # delete GVM resources (target/task) after report collected
   default_port_list: "All IANA assigned TCP"  # GVM port list for full scans
 
+# External target source (optional — enables auto-sync and scheduled scans)
+# source:
+#   url: "https://cmdb.empresa.com/api/v1/targets"
+#   auth_token: "Bearer eyJhbGciOiJIUzI1NiIs..."
+#   sync_interval: 300        # seconds between syncs (default: 5min)
+#   callback_url: ""           # POST results back (optional)
+#   timeout: 30                # HTTP timeout
+#   scheduler_interval: 60     # seconds between scheduler checks
+
 # Logging
 logging:
   level: "INFO"          # DEBUG, INFO, WARNING, ERROR
