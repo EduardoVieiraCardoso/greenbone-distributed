@@ -2,29 +2,42 @@
 
 Serviço bridge entre uma API externa e o Greenbone/OpenVAS via protocolo GMP.
 
-Recebe pedidos de scan, distribui entre múltiplos GVMs (probes), reporta status real (Queued, Running, %, Done) e entrega o XML completo do relatório.
+Recebe pedidos de scan (manual ou via sync com API externa), distribui entre múltiplos GVMs (probes), reporta status real (Queued, Running, %, Done) e entrega o XML completo do relatório. Persiste tudo em SQLite.
 
 ## Arquitetura
 
 ```
-                                                  ┌────────────────┐
-API Externa           Greenbone Adapter       ┌─▶│  GVM Probe 1   │
-    │                       │               │   │  (OpenVAS)     │
-    │  POST /scans          │  least-busy   │   └────────────────┘
-    │─────────────────────▶│  selection   ──┤
-    │                       │               │   ┌────────────────┐
-    │  GET /scans/{id}      │               ├─▶│  GVM Probe 2   │
-    │─────────────────────▶│               │   │  (OpenVAS)     │
-    │  { probe, status }    │               │   └────────────────┘
-    │◀──────────────────────│               │
-    │                       │               │   ┌────────────────┐
-    │  GET /probes          │               └─▶│  GVM Probe N   │
-    │─────────────────────▶│                   │  (OpenVAS)     │
-    │◀──────────────────────│                   └────────────────┘
+                                                    ┌────────────────┐
+API Externa           Greenbone Adapter         ┌─▶│  GVM Probe 1   │
+(CMDB/Assets)               │                  │   │  (OpenVAS)     │
+    │                        │                  │   └────────────────┘
+    │  GET /targets          │   Target Sync    │
+    │◀───────────────────────│   (pull a cada   │   ┌────────────────┐
+    │  [targets + freq]      │    5 min)        ├─▶│  GVM Probe 2   │
+    │                        │                  │   │  (OpenVAS)     │
+    │  POST /scan-results    │   Scheduler      │   └────────────────┘
+    │◀───────────────────────│   (a cada 60s)   │
+    │  (callback opcional)   │                  │   ┌────────────────┐
+    │                        │   least-busy     └─▶│  GVM Probe N   │
+    │                        │   selection          │  (OpenVAS)     │
+    │                        │                      └────────────────┘
+    │                        │
+Usuarios/APIs        ┌───────┴────────┐
+    │                │  SQLite        │
+    │  POST /scans   │  (scans +      │
+    │───────────────▶│   targets)     │
+    │  GET /scans    │                │
+    │───────────────▶│  Prometheus    │
+    │  GET /probes   │  + Grafana     │
+    │───────────────▶│                │
+    │                └────────────────┘
 ```
 
-- O adapter **distribui scans** entre múltiplos probes (least-busy)
-- Cada probe é uma instância GVM independente
+- **Distribui scans** entre múltiplos probes (least-busy com anti-starvation)
+- **Sync automático** com API externa de ativos (pull-based, opcional)
+- **Scheduler** dispara scans automaticamente por frequência e criticidade
+- **Persiste** scans e targets em SQLite (sobrevive restarts)
+- **Callback** envia resultados de volta para a API externa (opcional)
 - **Não modifica** a instalação do Greenbone
 - Todos os status e percentuais vêm **direto do GVM** via GMP
 - Compatível com probe único (formato `gvm:` legado)
@@ -33,17 +46,22 @@ API Externa           Greenbone Adapter       ┌─▶│  GVM Probe 1   │
 
 ```
 greenbone/
-├── config.yaml.example    # Template de configuração
+├── config.yaml.example    # Template de configuracao
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
+├── API_DOCS.md            # Documentacao completa da API
+├── INTEGRATION.md         # Contrato para integracao com API externa
 └── src/
     ├── main.py            # Entry point
-    ├── config.py          # Loader de configuração (YAML + env vars)
+    ├── config.py          # Loader de configuracao (YAML + env vars)
     ├── gvm_client.py      # Interface GMP com o Greenbone
-    ├── scan_manager.py    # Ciclo de vida do scan
+    ├── scan_manager.py    # Ciclo de vida do scan + distribuicao multi-probe
     ├── api.py             # Endpoints HTTP (FastAPI)
-    └── models.py          # Modelos de dados
+    ├── models.py          # Modelos de dados (Pydantic)
+    ├── database.py        # Persistencia SQLite (scans + targets)
+    ├── target_sync.py     # Sync com API externa + scheduler automatico
+    └── metrics.py         # Metricas Prometheus (globais + per-probe)
 ```
 
 ## Quick Start
@@ -104,28 +122,51 @@ api:
 
 scan:
   poll_interval: 30       # Segundos entre cada poll de status no GVM
-  max_duration: 86400     # Timeout máximo do scan em segundos (24h)
-  cleanup_after_report: true  # Deletar recursos GVM após coletar report
+  max_duration: 86400     # Timeout maximo do scan em segundos (24h)
+  cleanup_after_report: true  # Deletar recursos GVM apos coletar report
   default_port_list: "All IANA assigned TCP"  # Port list do GVM para full scans
+  gvm_scan_config: "Full and fast"    # Nome do scan config no GVM
+  gvm_scanner: "OpenVAS Default"      # Nome do scanner no GVM
+  db_path: "scans.db"                 # Caminho do banco SQLite
+
+# Sync com API externa (opcional — ativa target sync + scheduler)
+# source:
+#   url: "https://cmdb.empresa.com/api/v1/targets"
+#   auth_token: "Bearer <token>"
+#   sync_interval: 300        # segundos entre syncs (5min)
+#   callback_url: ""           # POST resultados de volta (opcional)
+#   timeout: 30
+#   scheduler_interval: 60     # segundos entre checks do scheduler
 
 logging:
   level: "INFO"
   format: "console"       # console ou json
 ```
 
-Environment variables sobrescrevem o YAML (aplicam ao primeiro probe): `GVM_HOST`, `GVM_PORT`, `GVM_USERNAME`, `GVM_PASSWORD`, `GVM_TIMEOUT`, `GVM_RETRY_ATTEMPTS`, `GVM_RETRY_DELAY`, `API_HOST`, `API_PORT`, `SCAN_POLL_INTERVAL`, `LOG_LEVEL`, `LOG_FORMAT`.
+Environment variables sobrescrevem o YAML (aplicam ao primeiro probe):
+
+**GVM:** `GVM_HOST`, `GVM_PORT`, `GVM_USERNAME`, `GVM_PASSWORD`, `GVM_TIMEOUT`, `GVM_RETRY_ATTEMPTS`, `GVM_RETRY_DELAY`
+**API:** `API_HOST`, `API_PORT`
+**Scan:** `SCAN_POLL_INTERVAL`, `SCAN_MAX_DURATION`, `SCAN_CLEANUP`, `SCAN_DEFAULT_PORT_LIST`
+**Source:** `SOURCE_URL`, `SOURCE_AUTH_TOKEN`, `SOURCE_SYNC_INTERVAL`, `SOURCE_CALLBACK_URL`, `SOURCE_TIMEOUT`, `SOURCE_SCHEDULER_INTERVAL`
+**Logging:** `LOG_LEVEL`, `LOG_FORMAT`
 
 ## API Endpoints
 
 | Metodo | Endpoint | Descricao |
 |--------|----------|-----------|
-| GET | `/health` | Health check |
-| POST | `/scans` | Submeter novo scan |
-| GET | `/scans` | Listar todos os scans |
+| GET | `/health` | Health check (testa todos os probes) |
+| POST | `/scans` | Submeter novo scan (auto-seleciona probe) |
+| GET | `/scans` | Listar todos os scans (persistido em SQLite) |
 | GET | `/scans/{id}` | Status atual do scan (status + % do GVM) |
 | GET | `/scans/{id}/report` | XML completo do relatorio (so quando Done) |
 | GET | `/probes` | Lista probes e scans ativos por probe |
+| GET | `/targets` | Lista targets sincronizados da API externa |
+| GET | `/targets/{id}` | Detalhes de um target |
 | GET | `/metrics` | Metricas Prometheus |
+
+Documentacao completa com exemplos: **[API_DOCS.md](API_DOCS.md)**
+Contrato para integracao com API externa: **[INTEGRATION.md](INTEGRATION.md)**
 
 ### Submeter scan (full)
 
@@ -192,18 +233,39 @@ Os status reportados sao os reais do Greenbone, sem modificacao:
 | `Stopped` | Parado manualmente |
 | `Interrupted` | Interrompido |
 
-## Métricas Prometheus
+## Metricas Prometheus
 
-Endpoint `/metrics` expõe métricas no formato Prometheus:
+Endpoint `/metrics` expoe metricas no formato Prometheus.
 
-| Métrica | Tipo | Descrição |
+**Globais:**
+
+| Metrica | Tipo | Descricao |
 |---------|------|-----------|
 | `greenbone_scans_submitted_total` | Counter | Total de scans submetidos (label: `scan_type`) |
 | `greenbone_scans_completed_total` | Counter | Scans que chegaram a estado terminal (label: `gvm_status`) |
-| `greenbone_scans_failed_total` | Counter | Scans que falharam por erro do adapter/conexão |
-| `greenbone_scans_active` | Gauge | Scans em execução agora |
-| `greenbone_scan_duration_seconds` | Histogram | Duração do scan (start → terminal) |
-| `greenbone_gvm_connection_errors_total` | Counter | Falhas de conexão com o GVM |
+| `greenbone_scans_failed_total` | Counter | Scans que falharam por erro do adapter/conexao |
+| `greenbone_scans_active` | Gauge | Scans em execucao agora |
+| `greenbone_scan_duration_seconds` | Histogram | Duracao do scan (start -> terminal) |
+
+**Por probe:**
+
+| Metrica | Tipo | Descricao |
+|---------|------|-----------|
+| `greenbone_probe_scans_active` | Gauge | Scans ativos por probe (label: `probe`) |
+| `greenbone_probe_scans_routed_total` | Counter | Total de scans roteados por probe (label: `probe`) |
+| `greenbone_gvm_connection_errors_total` | Counter | Erros de conexao por probe (label: `probe`) |
+
+Dashboard Grafana incluso em `monitoring/grafana/dashboards/greenbone-adapter.json`.
+
+## Integracao com API Externa
+
+O adapter pode sincronizar targets automaticamente de uma API REST externa. Quando `source.url` esta configurado:
+
+1. **Target Sync** — puxa `GET <source.url>` a cada `sync_interval` segundos e faz upsert no SQLite
+2. **Scheduler** — a cada `scheduler_interval` segundos, verifica quais targets precisam de scan (`next_scan_at <= now`) e cria scans automaticamente, priorizando por criticidade
+3. **Callback** — quando um scan termina, envia o resultado via `POST <callback_url>` (opcional)
+
+O contrato completo que a API externa deve implementar esta documentado em **[INTEGRATION.md](INTEGRATION.md)**.
 
 ## Stack
 
@@ -211,5 +273,8 @@ Endpoint `/metrics` expõe métricas no formato Prometheus:
 |------------|------------|
 | API | Python / FastAPI |
 | GVM Client | python-gvm (protocolo GMP) |
+| Persistencia | SQLite (WAL mode) |
+| HTTP Client | httpx (target sync) |
+| Metricas | Prometheus + Grafana |
 | Config | YAML + env vars |
 | Container | Docker |
