@@ -1,10 +1,10 @@
 """
-Target Sync & Scheduler — pulls targets from external API and auto-triggers scans.
+Target Sync & Scheduler.
 
 1. Sync: periodically fetches targets from external REST API, upserts into SQLite
+   (only active when source.url is configured)
 2. Scheduler: checks which targets are due for scanning, creates scans automatically
-
-Only active when source.url is configured.
+   (always active — works with targets inserted manually or via sync)
 """
 
 import asyncio
@@ -82,12 +82,23 @@ class TargetSync:
 
 
 class ScanScheduler:
-    """Checks due targets and auto-creates scans."""
+    """Checks due targets and auto-creates scans.
 
-    def __init__(self, config: SourceConfig, db: ScanDatabase, scan_manager):
-        self._config = config
+    Works independently of TargetSync — targets can come from the external
+    API sync or be inserted directly into SQLite.
+    """
+
+    def __init__(self, db: ScanDatabase, scan_manager,
+                 scheduler_interval: int = 60,
+                 callback_url: str = "",
+                 auth_token: str = "",
+                 timeout: int = 30):
         self._db = db
         self._scan_manager = scan_manager
+        self._scheduler_interval = scheduler_interval
+        self._callback_url = callback_url
+        self._auth_token = auth_token
+        self._timeout = timeout
 
     async def check_and_schedule(self):
         """Find targets due for scanning and create scans."""
@@ -134,7 +145,7 @@ class ScanScheduler:
 
     async def send_callback(self, scan_id: str):
         """Send scan results back to the external API (optional)."""
-        if not self._config.callback_url:
+        if not self._callback_url:
             return
 
         record = self._scan_manager.get_scan(scan_id)
@@ -155,12 +166,12 @@ class ScanScheduler:
 
         try:
             headers = {"Content-Type": "application/json"}
-            if self._config.auth_token:
-                headers["Authorization"] = self._config.auth_token
+            if self._auth_token:
+                headers["Authorization"] = self._auth_token
 
-            async with httpx.AsyncClient(timeout=self._config.timeout) as client:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
-                    self._config.callback_url,
+                    self._callback_url,
                     json=payload,
                     headers=headers
                 )
@@ -171,10 +182,7 @@ class ScanScheduler:
 
     async def run_loop(self):
         """Run scheduler in a loop at the configured interval."""
-        if not self._config.url:
-            log.info("scheduler_disabled", reason="source.url not configured")
-            return
-
+        log.info("scheduler_started", interval=self._scheduler_interval)
         while True:
             await self.check_and_schedule()
-            await asyncio.sleep(self._config.scheduler_interval)
+            await asyncio.sleep(self._scheduler_interval)

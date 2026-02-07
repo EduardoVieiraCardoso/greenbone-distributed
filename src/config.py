@@ -47,6 +47,7 @@ class ScanConfig:
     gvm_scan_config: str = "Full and fast"
     gvm_scanner: str = "OpenVAS Default"
     db_path: str = "scans.db"
+    scheduler_interval: int = 60  # seconds between scheduler checks
 
 
 @dataclass

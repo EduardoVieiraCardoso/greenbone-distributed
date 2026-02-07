@@ -218,6 +218,39 @@ class ScanDatabase:
                 )
             self._conn.commit()
 
+    def insert_manual_target(self, external_id: str, host: str,
+                             scan_type: str = "full",
+                             ports: list[int] = None,
+                             criticality: str = "medium",
+                             scan_frequency_hours: int = 24,
+                             tags: dict = None) -> dict:
+        """Insert a target manually (without external API sync)."""
+        now = datetime.now(timezone.utc).isoformat()
+        weight = CRITICALITY_WEIGHTS.get(criticality, 2)
+        ports_json = json.dumps(ports) if ports else None
+        tags_json = json.dumps(tags) if tags else None
+
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT external_id FROM targets WHERE external_id = ?",
+                (external_id,)
+            ).fetchone()
+            if existing:
+                raise ValueError(f"Target '{external_id}' already exists")
+
+            self._conn.execute(
+                """INSERT INTO targets
+                   (external_id, host, ports, scan_type, criticality,
+                    criticality_weight, scan_frequency_hours, enabled,
+                    tags, next_scan_at, synced_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (external_id, host, ports_json, scan_type, criticality,
+                 weight, scan_frequency_hours, 1, tags_json, now, now, now)
+            )
+            self._conn.commit()
+
+        return self.get_target(external_id)
+
     def deactivate_missing(self, active_ids: set[str]):
         """Deactivate targets not present in the external API response."""
         with self._lock:

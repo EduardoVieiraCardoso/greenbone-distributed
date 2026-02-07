@@ -14,6 +14,7 @@ Endpoints:
 import asyncio
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 import structlog
@@ -38,20 +39,29 @@ def create_app(config: AppConfig) -> FastAPI:
         manager = ScanManager(config)
         app.state.scan_manager = manager
 
-        # Start target sync and scheduler if source.url is configured
+        # Scheduler always runs (checks SQLite for due targets)
         bg_tasks = []
+        scheduler = ScanScheduler(
+            db=manager._db,
+            scan_manager=manager,
+            scheduler_interval=config.scan.scheduler_interval,
+            callback_url=config.source.callback_url,
+            auth_token=config.source.auth_token,
+            timeout=config.source.timeout,
+        )
+        bg_tasks.append(asyncio.create_task(scheduler.run_loop()))
+
+        # Wire callback: when scan completes, send results to external API
+        if config.source.callback_url:
+            manager._on_scan_complete = scheduler.send_callback
+
+        # Start target sync only if source.url is configured
         if config.source.url:
             sync = TargetSync(config.source, manager._db)
-            scheduler = ScanScheduler(config.source, manager._db, manager)
             bg_tasks.append(asyncio.create_task(sync.run_loop()))
-            bg_tasks.append(asyncio.create_task(scheduler.run_loop()))
-            # Wire callback: when scan completes, send results to external API
-            if config.source.callback_url:
-                manager._on_scan_complete = scheduler.send_callback
             log.info("source_sync_enabled",
                      url=config.source.url,
-                     sync_interval=config.source.sync_interval,
-                     scheduler_interval=config.source.scheduler_interval)
+                     sync_interval=config.source.sync_interval)
 
         log.info("adapter_starting")
         yield
@@ -68,6 +78,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app.add_api_route("/health", health, methods=["GET"])
     app.add_api_route("/probes", list_probes, methods=["GET"])
+    app.add_api_route("/targets", create_target, methods=["POST"])
     app.add_api_route("/targets", list_targets, methods=["GET"])
     app.add_api_route("/targets/{external_id}", get_target, methods=["GET"])
     app.add_api_route("/scans", create_scan, methods=["POST"],
@@ -117,7 +128,7 @@ async def list_probes(request: Request):
 
 
 async def list_targets(request: Request):
-    """List all targets from external source with schedule info."""
+    """List all targets (from sync or manually created) with schedule info."""
     manager: ScanManager = request.app.state.scan_manager
     targets = manager._db.list_targets()
     return {"total": len(targets), "targets": targets}
@@ -130,6 +141,31 @@ async def get_target(request: Request, external_id: str):
     if not target:
         raise HTTPException(status_code=404, detail="Target not found")
     return target
+
+
+async def create_target(request: Request):
+    """Create a target manually for automatic scheduled scanning."""
+    body = await request.json()
+
+    required = ["id", "host"]
+    for field in required:
+        if field not in body:
+            raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+
+    manager: ScanManager = request.app.state.scan_manager
+    try:
+        target = manager._db.insert_manual_target(
+            external_id=body["id"],
+            host=body["host"],
+            scan_type=body.get("scan_type", "full"),
+            ports=body.get("ports"),
+            criticality=body.get("criticality", "medium"),
+            scan_frequency_hours=body.get("scan_frequency_hours", 24),
+            tags=body.get("tags"),
+        )
+        return JSONResponse(status_code=201, content=target)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 async def create_scan(request: Request, body: ScanRequest):
