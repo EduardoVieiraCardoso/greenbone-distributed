@@ -115,19 +115,26 @@ def create_app(config: AppConfig) -> FastAPI:
 # =============================================================================
 
 async def generate_token(request: Request):
-    """Generate a JWT token. Requires jwt_secret to be configured."""
+    """Generate a JWT token. Requires valid admin credentials."""
     config: AppConfig = request.app.state.config
     if not config.api.jwt_secret:
         raise HTTPException(status_code=501, detail="JWT auth not configured (api.jwt_secret is empty)")
+    if not config.api.admin_password:
+        raise HTTPException(status_code=501, detail="Admin password not configured (api.admin_password is empty)")
 
     body = await request.json()
-    subject = body.get("sub", "scanhub")
+    username = body.get("username", "")
+    password = body.get("password", "")
+
+    if username != config.api.admin_user or password != config.api.admin_password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     expire = body.get("expire_minutes", config.api.jwt_expire_minutes)
 
     token_data = create_token(
         secret=config.api.jwt_secret,
         expire_minutes=expire,
-        subject=subject,
+        subject=username,
     )
     return token_data
 

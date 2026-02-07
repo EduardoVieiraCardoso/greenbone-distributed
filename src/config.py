@@ -37,6 +37,8 @@ class APIConfig:
     port: int = 8080
     jwt_secret: str = ""
     jwt_expire_minutes: int = 1440
+    admin_user: str = "admin"
+    admin_password: str = ""
 
 
 @dataclass

@@ -32,6 +32,8 @@ api:
   port: 8080
   jwt_secret: ""               # Set a secret to enable JWT auth (empty = auth disabled)
   jwt_expire_minutes: 1440     # Token expiration in minutes (default: 24h)
+  admin_user: "admin"          # Username for POST /auth/token
+  admin_password: ""           # Password for POST /auth/token (required when jwt_secret is set)
 
 # Scan settings
 scan:
