@@ -67,6 +67,12 @@ def create_app(config: AppConfig) -> FastAPI:
 
         log.info("adapter_starting")
         yield
+
+        # Graceful shutdown: mark orphaned scans as interrupted
+        orphaned = manager._db.mark_orphaned_scans()
+        if orphaned:
+            log.warning("orphaned_scans_marked", count=orphaned)
+
         for task in bg_tasks:
             task.cancel()
         log.info("adapter_shutdown")

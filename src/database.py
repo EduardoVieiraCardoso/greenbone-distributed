@@ -175,6 +175,21 @@ class ScanDatabase:
             ).fetchall()
         return {row["probe_name"]: row["cnt"] for row in rows}
 
+    def mark_orphaned_scans(self) -> int:
+        """Mark scans without completed_at as interrupted (called on shutdown).
+        Returns the number of scans marked."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cursor = self._conn.execute(
+                """UPDATE scans SET
+                   completed_at = ?, error = 'Service restarted',
+                   gvm_status = 'Interrupted'
+                   WHERE completed_at IS NULL""",
+                (now,)
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
     _LIST_COLUMNS = """scan_id, probe_name, name, target, scan_type, ports,
         scan_config, external_target_id, gvm_target_id, gvm_task_id,
         gvm_report_id, gvm_port_list_id, gvm_status, gvm_progress,

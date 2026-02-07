@@ -173,6 +173,7 @@ class GVMSession:
     def __init__(self, gmp: Gmp, proto):
         self._gmp = gmp
         self._proto = proto
+        self._cache: dict[str, str] = {}
 
     def close(self):
         """Close the GMP connection."""
@@ -221,10 +222,14 @@ class GVMSession:
         return configs
 
     def get_scan_config_id(self, name: str = "Full and fast") -> str:
-        """Get scan config ID by name."""
+        """Get scan config ID by name (cached per session)."""
+        cache_key = f"config:{name}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
         configs = self.get_scan_configs()
         for config in configs:
             if config.name == name:
+                self._cache[cache_key] = config.id
                 return config.id
         raise ValueError(
             f"Scan config '{name}' not found. "
@@ -249,10 +254,14 @@ class GVMSession:
         return scanners
 
     def get_scanner_id(self, name: str = "OpenVAS Default") -> str:
-        """Get scanner ID by name."""
+        """Get scanner ID by name (cached per session)."""
+        cache_key = f"scanner:{name}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
         scanners = self.get_scanners()
         for scanner in scanners:
             if scanner.name == name:
+                self._cache[cache_key] = scanner.id
                 return scanner.id
         raise ValueError(
             f"Scanner '{name}' not found. "
@@ -334,6 +343,15 @@ class GVMSession:
             raise RuntimeError(f"GVM did not return an ID when creating target '{name}'")
         log.info("target_created", id=target_id)
         return target_id
+
+    def target_exists(self, target_id: str) -> bool:
+        """Check if a GVM target still exists."""
+        try:
+            response = self._parse(self.gmp.get_target(target_id))
+            status = response.get("status", "")
+            return status.startswith("2")
+        except Exception:
+            return False
 
     def delete_target(self, target_id: str):
         """Delete a target."""

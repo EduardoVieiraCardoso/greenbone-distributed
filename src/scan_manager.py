@@ -146,6 +146,10 @@ class ScanManager:
         """Update scan record fields."""
         self._db.update(scan_id, **kwargs)
 
+    def link_scan_to_target(self, scan_id: str, external_target_id: str):
+        """Link a scan to an external target (public API for scheduler)."""
+        self._db.update(scan_id, external_target_id=external_target_id)
+
     def create_scan(self, target: str, scan_type: ScanType,
                     ports: Optional[list[int]] = None,
                     probe_name: Optional[str] = None,
@@ -280,14 +284,21 @@ class ScanManager:
         if record.external_target_id:
             stored = self._db.get_target(record.external_target_id)
             if stored:
-                target_id = stored.get("gvm_target_id")
+                stored_target_id = stored.get("gvm_target_id")
                 port_list_id = stored.get("gvm_port_list_id")
-                if target_id:
-                    reused = True
-                    log.info("reusing_gvm_target",
-                             scan_id=scan_id,
-                             external_id=record.external_target_id,
-                             gvm_target_id=target_id)
+                if stored_target_id:
+                    if gvm.target_exists(stored_target_id):
+                        target_id = stored_target_id
+                        reused = True
+                        log.info("reusing_gvm_target",
+                                 scan_id=scan_id,
+                                 external_id=record.external_target_id,
+                                 gvm_target_id=target_id)
+                    else:
+                        log.warning("gvm_target_gone_recreating",
+                                    scan_id=scan_id,
+                                    gvm_target_id=stored_target_id)
+                        port_list_id = None
 
         if not target_id:
             # Create custom port list for directed scans

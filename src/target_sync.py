@@ -127,7 +127,7 @@ class ScanScheduler:
                 )
 
                 # Link scan to external target
-                self._scan_manager._update_scan(
+                self._scan_manager.link_scan_to_target(
                     record.scan_id,
                     external_target_id=target["external_id"]
                 )
