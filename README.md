@@ -1,6 +1,6 @@
-# Greenbone Adapter
+# Scan Hub
 
-Serviço bridge entre uma API externa e o Greenbone/OpenVAS via protocolo GMP.
+Orquestrador de scans de segurança. Hoje integra com Greenbone/OpenVAS via GMP, futuramente com Nuclei, Amass e outros.
 
 Recebe pedidos de scan (manual ou via sync com API externa), distribui entre múltiplos GVMs (probes), reporta status real (Queued, Running, %, Done) e entrega o XML completo do relatório. Persiste tudo em SQLite.
 
@@ -8,7 +8,7 @@ Recebe pedidos de scan (manual ou via sync com API externa), distribui entre mú
 
 ```
                                                     ┌────────────────┐
-API Externa           Greenbone Adapter         ┌─▶│  GVM Probe 1   │
+API Externa              Scan Hub                ┌─▶│  GVM Probe 1   │
 (CMDB/Assets)               │                  │   │  (OpenVAS)     │
     │                        │                  │   └────────────────┘
     │  GET /targets          │   Target Sync    │
@@ -241,21 +241,21 @@ Endpoint `/metrics` expoe metricas no formato Prometheus.
 
 | Metrica | Tipo | Descricao |
 |---------|------|-----------|
-| `greenbone_scans_submitted_total` | Counter | Total de scans submetidos (label: `scan_type`) |
-| `greenbone_scans_completed_total` | Counter | Scans que chegaram a estado terminal (label: `gvm_status`) |
-| `greenbone_scans_failed_total` | Counter | Scans que falharam por erro do adapter/conexao |
-| `greenbone_scans_active` | Gauge | Scans em execucao agora |
-| `greenbone_scan_duration_seconds` | Histogram | Duracao do scan (start -> terminal) |
+| `scanhub_scans_submitted_total` | Counter | Total de scans submetidos (label: `scan_type`) |
+| `scanhub_scans_completed_total` | Counter | Scans que chegaram a estado terminal (label: `gvm_status`) |
+| `scanhub_scans_failed_total` | Counter | Scans que falharam por erro do adapter/conexao |
+| `scanhub_scans_active` | Gauge | Scans em execucao agora |
+| `scanhub_scan_duration_seconds` | Histogram | Duracao do scan (start -> terminal) |
 
 **Por probe:**
 
 | Metrica | Tipo | Descricao |
 |---------|------|-----------|
-| `greenbone_probe_scans_active` | Gauge | Scans ativos por probe (label: `probe`) |
-| `greenbone_probe_scans_routed_total` | Counter | Total de scans roteados por probe (label: `probe`) |
-| `greenbone_gvm_connection_errors_total` | Counter | Erros de conexao por probe (label: `probe`) |
+| `scanhub_probe_scans_active` | Gauge | Scans ativos por probe (label: `probe`) |
+| `scanhub_probe_scans_routed_total` | Counter | Total de scans roteados por probe (label: `probe`) |
+| `scanhub_gvm_connection_errors_total` | Counter | Erros de conexao por probe (label: `probe`) |
 
-Dashboard Grafana incluso em `monitoring/grafana/dashboards/greenbone-adapter.json`.
+Dashboard Grafana incluso em `monitoring/grafana/dashboards/scan-hub.json`.
 
 ## Integracao com API Externa
 

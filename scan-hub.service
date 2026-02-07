@@ -1,5 +1,5 @@
 [Unit]
-Description=Greenbone Adapter - GVM Scan Management API
+Description=Scan Hub - Security Scan Orchestrator API
 Documentation=https://github.com/EduardoVieiraCardoso/greenbone-distributed
 After=network.target
 
@@ -16,7 +16,7 @@ StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=greenbone-adapter
+SyslogIdentifier=scan-hub
 
 # Hardening
 NoNewPrivileges=true

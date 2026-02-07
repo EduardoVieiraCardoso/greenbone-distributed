@@ -1,5 +1,5 @@
 """
-Data models for the Greenbone Adapter.
+Data models for Scan Hub.
 
 All scan statuses reflect real Greenbone/GVM statuses — nothing is invented.
 """

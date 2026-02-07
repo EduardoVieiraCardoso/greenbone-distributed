@@ -1,6 +1,6 @@
 # Integracao com API Externa de Ativos
 
-Este documento define o **contrato** que a API externa deve implementar para que o Greenbone Adapter consuma os targets automaticamente.
+Este documento define o **contrato** que a API externa deve implementar para que o Scan Hub consuma os targets automaticamente.
 
 O adapter faz polling periodico na API externa, sincroniza os targets no SQLite local, e dispara scans automaticamente baseado na frequencia configurada por target.
 
@@ -9,7 +9,7 @@ O adapter faz polling periodico na API externa, sincroniza os targets no SQLite 
 ## Arquitetura
 
 ```
-API Externa (CMDB/Assets)        Greenbone Adapter                 GVM Probes
+API Externa (CMDB/Assets)           Scan Hub                      GVM Probes
         |                               |                              |
         |  GET /api/v1/targets          |                              |
         |<------------------------------|  sync (a cada X min)         |

@@ -1,3 +1,3 @@
 """
-Greenbone Adapter - Bridge service for Greenbone/OpenVAS via GMP protocol.
+Scan Hub - Security Scan Orchestrator (GVM/OpenVAS, Nuclei, Amass).
 """

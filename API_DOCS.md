@@ -1,4 +1,4 @@
-# Greenbone Adapter — Documentacao da API
+# Scan Hub — Documentacao da API
 
 Base URL: `http://<host>:<port>` (default: `http://localhost:8080`)
 
@@ -468,19 +468,19 @@ curl http://192.168.15.249:8088/metrics
 
 | Metrica | Tipo | Descricao |
 |---------|------|-----------|
-| `greenbone_scans_submitted_total` | Counter | Total de scans submetidos (label: `scan_type`) |
-| `greenbone_scans_completed_total` | Counter | Total de scans finalizados (label: `gvm_status`) |
-| `greenbone_scans_failed_total` | Counter | Total de falhas do adapter |
-| `greenbone_scans_active` | Gauge | Scans em execucao agora |
-| `greenbone_scan_duration_seconds` | Histogram | Duracao dos scans (p50, p90, p99) |
+| `scanhub_scans_submitted_total` | Counter | Total de scans submetidos (label: `scan_type`) |
+| `scanhub_scans_completed_total` | Counter | Total de scans finalizados (label: `gvm_status`) |
+| `scanhub_scans_failed_total` | Counter | Total de falhas do adapter |
+| `scanhub_scans_active` | Gauge | Scans em execucao agora |
+| `scanhub_scan_duration_seconds` | Histogram | Duracao dos scans (p50, p90, p99) |
 
 **Por probe:**
 
 | Metrica | Tipo | Descricao |
 |---------|------|-----------|
-| `greenbone_probe_scans_active` | Gauge | Scans ativos por probe (label: `probe`) |
-| `greenbone_probe_scans_routed_total` | Counter | Total de scans roteados por probe (label: `probe`) |
-| `greenbone_gvm_connection_errors_total` | Counter | Erros de conexao por probe (label: `probe`) |
+| `scanhub_probe_scans_active` | Gauge | Scans ativos por probe (label: `probe`) |
+| `scanhub_probe_scans_routed_total` | Counter | Total de scans roteados por probe (label: `probe`) |
+| `scanhub_gvm_connection_errors_total` | Counter | Erros de conexao por probe (label: `probe`) |
 
 ---
 
@@ -519,8 +519,8 @@ Scan 4 → gvm-2 (anti-starvation: gvm-1 selecionado 3x seguidas)
 ### Monitoramento
 
 - **API**: `GET /probes` — scans ativos por probe
-- **Grafana**: Dashboard "Greenbone Adapter" com paineis por probe
-- **Prometheus**: `greenbone_probe_scans_active{probe="gvm-1"}`
+- **Grafana**: Dashboard "Scan Hub" com paineis por probe
+- **Prometheus**: `scanhub_probe_scans_active{probe="gvm-1"}`
 
 ---
 

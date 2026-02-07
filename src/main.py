@@ -1,5 +1,5 @@
 """
-Greenbone Adapter — Entry point.
+Scan Hub — Entry point.
 
 Starts the FastAPI server with configuration from config.yaml / env vars.
 """

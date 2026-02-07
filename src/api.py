@@ -1,5 +1,5 @@
 """
-Greenbone Adapter API — HTTP endpoints for scan management.
+Scan Hub API — HTTP endpoints for scan management.
 
 Endpoints:
   POST /scans          — Submit a new scan (auto-selects least-busy probe)
@@ -70,8 +70,8 @@ def create_app(config: AppConfig) -> FastAPI:
         log.info("adapter_shutdown")
 
     app = FastAPI(
-        title="Greenbone Adapter",
-        description="Bridge service for Greenbone/OpenVAS via GMP protocol",
+        title="Scan Hub",
+        description="Security Scan Orchestrator API",
         version="1.0.0",
         lifespan=lifespan,
     )
