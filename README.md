@@ -10,12 +10,12 @@ Recebe pedidos de scan, executa no GVM, reporta status real (Queued, Running, %,
 API Externa           Greenbone Adapter              GVM (OpenVAS)
     │                       │                             │
     │  POST /scans          │                             │
-    │──────────────────────▶│  create target + task       │
+    │─────────────────────▶│  create target + task       │
     │                       │────────────────────────────▶│
     │                       │         (GMP/TLS)           │
     │                       │                             │
     │  GET /scans/{id}      │  get_task status/progress   │
-    │──────────────────────▶│◀───────────────────────────▶│
+    │─────────────────────▶│◀───────────────────────────▶│
     │  { gvm_status,        │         (GMP/TLS)           │
     │    gvm_progress }     │                             │
     │◀──────────────────────│                             │
@@ -55,11 +55,11 @@ cp config.yaml.example config.yaml
 # Editar config.yaml com host/porta/credenciais do GVM
 
 # 2. Criar e ativar ambiente virtual
-python -m venv venv
+python3 -m venv venv
 # Linux/Mac:
 source venv/bin/activate
 # Windows:
-venv\Scripts\activate
+#venv\Scripts\activate
 
 # 3. Instalar dependências
 pip install -r requirements.txt
@@ -96,6 +96,7 @@ scan:
   poll_interval: 30       # Segundos entre cada poll de status no GVM
   max_duration: 86400     # Timeout máximo do scan em segundos (24h)
   cleanup_after_report: true  # Deletar recursos GVM após coletar report
+  default_port_list: "All IANA assigned TCP"  # Port list do GVM para full scans
 
 logging:
   level: "INFO"

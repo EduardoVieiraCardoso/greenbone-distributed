@@ -36,6 +36,7 @@ class ScanConfig:
     poll_interval: int = 30
     max_duration: int = 86400
     cleanup_after_report: bool = True
+    default_port_list: str = "All IANA assigned TCP"
 
 
 @dataclass
@@ -115,6 +116,7 @@ def _apply_env_overrides(config: AppConfig):
         "SCAN_POLL_INTERVAL": (config.scan, "poll_interval", int),
         "SCAN_MAX_DURATION": (config.scan, "max_duration", int),
         "SCAN_CLEANUP": (config.scan, "cleanup_after_report", lambda v: v.lower() in ("true", "1", "yes")),
+        "SCAN_DEFAULT_PORT_LIST": (config.scan, "default_port_list", str),
         "LOG_LEVEL": (config.logging, "level", str),
         "LOG_FORMAT": (config.logging, "format", str),
     }

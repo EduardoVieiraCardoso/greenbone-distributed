@@ -22,6 +22,7 @@ scan:
   poll_interval: 30      # seconds between GVM status checks
   max_duration: 86400    # max scan duration in seconds (default: 24h)
   cleanup_after_report: true  # delete GVM resources (target/task) after report collected
+  default_port_list: "All IANA assigned TCP"  # GVM port list for full scans
 
 # Logging
 logging:

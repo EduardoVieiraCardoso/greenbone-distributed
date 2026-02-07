@@ -192,7 +192,8 @@ class ScanManager:
         target_id = gvm.create_target(
             name=f"scan-{scan_id}-target",
             hosts=record.target,
-            port_list_id=port_list_id
+            port_list_id=port_list_id,
+            default_port_list_name=self.config.scan.default_port_list
         )
         self._update_scan(scan_id, gvm_target_id=target_id)
 

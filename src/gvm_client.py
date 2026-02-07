@@ -262,6 +262,17 @@ class GVMSession:
                 ))
         return port_lists
 
+    def get_port_list_id(self, name: str) -> str:
+        """Get port list ID by name."""
+        port_lists = self.get_port_lists()
+        for pl in port_lists:
+            if pl.name == name:
+                return pl.id
+        raise ValueError(
+            f"Port list '{name}' not found. "
+            f"Available: {[p.name for p in port_lists]}"
+        )
+
     def create_port_list(self, name: str, ports: list[int]) -> str:
         """Create a custom port list. Returns port_list_id."""
         port_range = ",".join(f"T:{p}" for p in ports)
@@ -283,13 +294,16 @@ class GVMSession:
     # =========================================================================
 
     def create_target(self, name: str, hosts: str,
-                      port_list_id: Optional[str] = None) -> str:
+                      port_list_id: Optional[str] = None,
+                      default_port_list_name: Optional[str] = None) -> str:
         """Create a scan target. Returns target_id."""
         log.info("creating_target", name=name, hosts=hosts)
 
-        kwargs = {"name": name, "hosts": [hosts]}
-        if port_list_id:
-            kwargs["port_list_id"] = port_list_id
+        if not port_list_id:
+            lookup_name = default_port_list_name or "All IANA assigned TCP"
+            port_list_id = self.get_port_list_id(lookup_name)
+
+        kwargs = {"name": name, "hosts": [hosts], "port_list_id": port_list_id}
 
         response = self._parse(self.gmp.create_target(**kwargs))
         self._check_response(response, "create_target")
