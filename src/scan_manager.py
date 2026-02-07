@@ -302,7 +302,7 @@ class ScanManager:
                 hosts=record.target,
                 port_list_id=port_list_id,
                 default_port_list_name=self.config.scan.default_port_list,
-                alive_test_name=self.config.scan.alive_test,
+                alive_test=self.config.scan.alive_test,
             )
 
             # Store GVM IDs on the scheduled target for future reuse
