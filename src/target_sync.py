@@ -117,6 +117,7 @@ class ScanScheduler:
                     target=target["host"],
                     scan_type=scan_type,
                     ports=ports,
+                    name=target["external_id"],
                 )
 
                 self._db.update_target_schedule(

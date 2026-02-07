@@ -23,6 +23,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans (
     scan_id TEXT PRIMARY KEY,
     probe_name TEXT NOT NULL,
+    name TEXT,
     target TEXT NOT NULL,
     scan_type TEXT NOT NULL,
     ports TEXT,
@@ -98,12 +99,13 @@ class ScanDatabase:
         with self._lock:
             self._conn.execute(
                 """INSERT INTO scans
-                   (scan_id, probe_name, target, scan_type, ports,
+                   (scan_id, probe_name, name, target, scan_type, ports,
                     external_target_id, gvm_status, gvm_progress, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     record.scan_id,
                     record.probe_name,
+                    record.name,
                     record.target,
                     record.scan_type.value,
                     json.dumps(record.ports) if record.ports else None,
@@ -352,6 +354,7 @@ class ScanDatabase:
         return ScanRecord(
             scan_id=row["scan_id"],
             probe_name=row["probe_name"],
+            name=row["name"],
             target=row["target"],
             scan_type=ScanType(row["scan_type"]),
             ports=json.loads(row["ports"]) if row["ports"] else None,

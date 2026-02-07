@@ -189,6 +189,7 @@ async def create_scan(request: Request, body: ScanRequest):
             scan_type=body.scan_type,
             ports=body.ports,
             probe_name=body.probe_name,
+            name=body.name,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

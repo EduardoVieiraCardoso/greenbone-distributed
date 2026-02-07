@@ -56,6 +56,7 @@ class ScanRequest(BaseModel):
     scan_type: ScanType = Field(ScanType.FULL, description="Scan type")
     ports: Optional[list[int]] = Field(None, description="Specific ports (for directed scan)")
     probe_name: Optional[str] = Field(None, description="Target probe (auto-selects least-busy if omitted)")
+    name: Optional[str] = Field(None, description="Friendly name for GVM dashboard (defaults to target)")
 
     @field_validator("target")
     @classmethod
@@ -136,6 +137,7 @@ class ScanRecord(BaseModel):
     """Internal scan tracking record."""
     scan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     probe_name: str = "default"
+    name: Optional[str] = None
     target: str
     scan_type: ScanType
     ports: Optional[list[int]] = None
