@@ -30,6 +30,20 @@ SCANS_ACTIVE = Gauge(
     "Number of scans currently in progress",
 )
 
+# Active scans per probe
+SCANS_ACTIVE_PER_PROBE = Gauge(
+    "greenbone_probe_scans_active",
+    "Number of scans currently in progress per probe",
+    ["probe"],
+)
+
+# Scans routed to each probe
+PROBE_SCANS_ROUTED = Counter(
+    "greenbone_probe_scans_routed_total",
+    "Total scans routed to each probe",
+    ["probe"],
+)
+
 # Scan duration from start to completion
 SCAN_DURATION = Histogram(
     "greenbone_scan_duration_seconds",
@@ -41,4 +55,5 @@ SCAN_DURATION = Histogram(
 GVM_CONNECTION_ERRORS = Counter(
     "greenbone_gvm_connection_errors_total",
     "Total GVM connection failures",
+    ["probe"],
 )

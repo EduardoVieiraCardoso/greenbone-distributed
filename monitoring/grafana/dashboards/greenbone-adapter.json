@@ -196,6 +196,92 @@
         },
         "overrides": []
       }
+    },
+    {
+      "title": "Scans Ativos por Probe",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "greenbone_probe_scans_active",
+          "legendFormat": "{{ probe }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 30, "lineWidth": 2 },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Scans Roteados por Probe (total)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 20 },
+      "targets": [
+        {
+          "expr": "greenbone_probe_scans_routed_total",
+          "legendFormat": "{{ probe }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      }
+    },
+    {
+      "title": "Erros de Conexao por Probe",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 20 },
+      "targets": [
+        {
+          "expr": "greenbone_gvm_connection_errors_total",
+          "legendFormat": "{{ probe }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      }
+    },
+    {
+      "title": "Taxa de Roteamento por Probe / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "expr": "rate(greenbone_probe_scans_routed_total[5m]) * 60",
+          "legendFormat": "{{ probe }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 20 }
+        },
+        "overrides": []
+      }
     }
   ],
   "schemaVersion": 39,

@@ -55,6 +55,7 @@ class ScanRequest(BaseModel):
     target: str = Field(..., description="IP, hostname or CIDR range")
     scan_type: ScanType = Field(ScanType.FULL, description="Scan type")
     ports: Optional[list[int]] = Field(None, description="Specific ports (for directed scan)")
+    probe_name: Optional[str] = Field(None, description="Target probe (auto-selects least-busy if omitted)")
 
     @field_validator("target")
     @classmethod
@@ -97,6 +98,7 @@ class ScanRequest(BaseModel):
 class ScanStatusResponse(BaseModel):
     """Current scan status — reflects real GVM state."""
     scan_id: str
+    probe_name: str = Field(..., description="Probe that is running this scan")
     gvm_status: str = Field(..., description="Real GVM task status")
     gvm_progress: int = Field(..., description="Real GVM progress percentage (0-100)")
     target: str
@@ -110,6 +112,7 @@ class ScanStatusResponse(BaseModel):
 class ScanResultResponse(BaseModel):
     """Scan result with full XML report."""
     scan_id: str
+    probe_name: str
     gvm_status: str
     target: str
     completed_at: Optional[datetime] = None
@@ -121,6 +124,7 @@ class ScanResultResponse(BaseModel):
 class ScanCreatedResponse(BaseModel):
     """Response after creating a scan."""
     scan_id: str
+    probe_name: str
     message: str
 
 
@@ -131,6 +135,7 @@ class ScanCreatedResponse(BaseModel):
 class ScanRecord(BaseModel):
     """Internal scan tracking record."""
     scan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    probe_name: str = "default"
     target: str
     scan_type: ScanType
     ports: Optional[list[int]] = None

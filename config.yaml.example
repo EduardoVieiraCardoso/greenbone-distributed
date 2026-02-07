@@ -2,15 +2,29 @@
 # Greenbone Adapter Configuration
 # ===========================================
 
-# GVM/OpenVAS connection
-gvm:
-  host: "127.0.0.1"
-  port: 9390
-  username: "admin"
-  password: "admin"
-  timeout: 300           # seconds
-  retry_attempts: 3
-  retry_delay: 5         # seconds between retries
+# GVM probes — one or more Greenbone instances
+# Scans are distributed across probes (least-busy selection)
+probes:
+  - name: "gvm-1"
+    host: "192.168.15.20"
+    port: 9390
+    username: "admin"
+    password: "admin"
+    timeout: 300
+    retry_attempts: 3
+    retry_delay: 5
+#  - name: "gvm-2"
+#    host: "192.168.15.30"
+#    port: 9390
+#    username: "admin"
+#    password: "admin"
+
+# Legacy single-probe format (still supported):
+# gvm:
+#   host: "127.0.0.1"
+#   port: 9390
+#   username: "admin"
+#   password: "admin"
 
 # Adapter API (this service)
 api:

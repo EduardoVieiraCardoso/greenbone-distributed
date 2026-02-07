@@ -2,33 +2,32 @@
 
 Serviço bridge entre uma API externa e o Greenbone/OpenVAS via protocolo GMP.
 
-Recebe pedidos de scan, executa no GVM, reporta status real (Queued, Running, %, Done) e entrega o XML completo do relatório.
+Recebe pedidos de scan, distribui entre múltiplos GVMs (probes), reporta status real (Queued, Running, %, Done) e entrega o XML completo do relatório.
 
 ## Arquitetura
 
 ```
-API Externa           Greenbone Adapter              GVM (OpenVAS)
-    │                       │                             │
-    │  POST /scans          │                             │
-    │─────────────────────▶│  create target + task       │
-    │                       │────────────────────────────▶│
-    │                       │         (GMP/TLS)           │
-    │                       │                             │
-    │  GET /scans/{id}      │  get_task status/progress   │
-    │─────────────────────▶│◀───────────────────────────▶│
-    │  { gvm_status,        │         (GMP/TLS)           │
-    │    gvm_progress }     │                             │
-    │◀──────────────────────│                             │
-    │                       │                             │
-    │  GET /scans/{id}/report                             │
-    │──────────────────────▶│  get_report (XML)           │
-    │  { report_xml }       │◀────────────────────────────│
-    │◀──────────────────────│                             │
+                                                  ┌────────────────┐
+API Externa           Greenbone Adapter       ┌─▶│  GVM Probe 1   │
+    │                       │               │   │  (OpenVAS)     │
+    │  POST /scans          │  least-busy   │   └────────────────┘
+    │─────────────────────▶│  selection   ──┤
+    │                       │               │   ┌────────────────┐
+    │  GET /scans/{id}      │               ├─▶│  GVM Probe 2   │
+    │─────────────────────▶│               │   │  (OpenVAS)     │
+    │  { probe, status }    │               │   └────────────────┘
+    │◀──────────────────────│               │
+    │                       │               │   ┌────────────────┐
+    │  GET /probes          │               └─▶│  GVM Probe N   │
+    │─────────────────────▶│                   │  (OpenVAS)     │
+    │◀──────────────────────│                   └────────────────┘
 ```
 
-- O adapter **não modifica** a instalação do Greenbone
+- O adapter **distribui scans** entre múltiplos probes (least-busy)
+- Cada probe é uma instância GVM independente
+- **Não modifica** a instalação do Greenbone
 - Todos os status e percentuais vêm **direto do GVM** via GMP
-- A conexão com o GVM é via TLS (porta 9390), pode ser local ou remota
+- Compatível com probe único (formato `gvm:` legado)
 
 ## Estrutura
 
@@ -79,14 +78,25 @@ docker-compose up -d
 Via `config.yaml`:
 
 ```yaml
-gvm:
-  host: "10.0.0.5"       # IP do Greenbone
-  port: 9390              # Porta GMP
-  username: "admin"
-  password: "sua_senha"
-  timeout: 300
-  retry_attempts: 3
-  retry_delay: 5
+# Multi-probe (recomendado)
+probes:
+  - name: "gvm-1"
+    host: "192.168.15.20"
+    port: 9390
+    username: "admin"
+    password: "senha"
+  - name: "gvm-2"
+    host: "192.168.15.30"
+    port: 9390
+    username: "admin"
+    password: "senha"
+
+# Ou single-probe (legado, ainda suportado)
+# gvm:
+#   host: "10.0.0.5"
+#   port: 9390
+#   username: "admin"
+#   password: "senha"
 
 api:
   host: "0.0.0.0"
@@ -103,7 +113,7 @@ logging:
   format: "console"       # console ou json
 ```
 
-Environment variables sobrescrevem o YAML: `GVM_HOST`, `GVM_PORT`, `GVM_USERNAME`, `GVM_PASSWORD`, `GVM_TIMEOUT`, `GVM_RETRY_ATTEMPTS`, `GVM_RETRY_DELAY`, `API_HOST`, `API_PORT`, `SCAN_POLL_INTERVAL`, `LOG_LEVEL`, `LOG_FORMAT`.
+Environment variables sobrescrevem o YAML (aplicam ao primeiro probe): `GVM_HOST`, `GVM_PORT`, `GVM_USERNAME`, `GVM_PASSWORD`, `GVM_TIMEOUT`, `GVM_RETRY_ATTEMPTS`, `GVM_RETRY_DELAY`, `API_HOST`, `API_PORT`, `SCAN_POLL_INTERVAL`, `LOG_LEVEL`, `LOG_FORMAT`.
 
 ## API Endpoints
 
@@ -114,6 +124,7 @@ Environment variables sobrescrevem o YAML: `GVM_HOST`, `GVM_PORT`, `GVM_USERNAME
 | GET | `/scans` | Listar todos os scans |
 | GET | `/scans/{id}` | Status atual do scan (status + % do GVM) |
 | GET | `/scans/{id}/report` | XML completo do relatorio (so quando Done) |
+| GET | `/probes` | Lista probes e scans ativos por probe |
 | GET | `/metrics` | Metricas Prometheus |
 
 ### Submeter scan (full)

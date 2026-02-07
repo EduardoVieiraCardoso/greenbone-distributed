@@ -18,11 +18,12 @@ from typing import Optional
 
 import structlog
 
-from .config import AppConfig
+from .config import AppConfig, ProbeConfig
 from .gvm_client import GVMClient, GVMSession
 from .metrics import (
     SCANS_SUBMITTED, SCANS_COMPLETED, SCANS_FAILED,
-    SCANS_ACTIVE, SCAN_DURATION, GVM_CONNECTION_ERRORS,
+    SCANS_ACTIVE, SCANS_ACTIVE_PER_PROBE, PROBE_SCANS_ROUTED,
+    SCAN_DURATION, GVM_CONNECTION_ERRORS,
 )
 from .models import ScanRecord, ScanType, GVMScanStatus
 
@@ -45,15 +46,95 @@ ERROR_STATUSES = {
 class ScanManager:
     """
     Manages scan lifecycle and in-memory scan tracking.
+    Distributes scans across multiple GVM probes (least-busy selection).
 
     Thread-safe access to scan records via a lock.
     """
 
     def __init__(self, config: AppConfig):
         self.config = config
-        self.gvm_client = GVMClient(config.gvm)
+        self._probes: dict[str, GVMClient] = {}
+        self._probe_configs: dict[str, ProbeConfig] = {}
+        for probe_cfg in config.probes:
+            self._probes[probe_cfg.name] = GVMClient(probe_cfg.gvm)
+            self._probe_configs[probe_cfg.name] = probe_cfg
         self._scans: dict[str, ScanRecord] = {}
         self._lock = threading.Lock()
+        self._last_probe: Optional[str] = None
+        self._consecutive_count: int = 0
+        log.info("probes_loaded", probes=list(self._probes.keys()))
+
+    def get_probe_client(self, probe_name: str) -> GVMClient:
+        """Get GVMClient for a specific probe."""
+        client = self._probes.get(probe_name)
+        if not client:
+            raise ValueError(f"Probe '{probe_name}' not found")
+        return client
+
+    @property
+    def probe_names(self) -> list[str]:
+        return list(self._probes.keys())
+
+    def _select_probe(self) -> str:
+        """
+        Select the least-busy probe with anti-starvation.
+
+        Rules:
+        1. Pick the probe with fewest active scans
+        2. If the same probe was selected max_consecutive_same_probe times
+           in a row, pick the next-least-busy instead (round-robin fallback)
+        """
+        max_consecutive = self.config.scan.max_consecutive_same_probe
+
+        active_counts: dict[str, int] = {name: 0 for name in self._probes}
+        with self._lock:
+            for record in self._scans.values():
+                if record.completed_at is None and record.probe_name in active_counts:
+                    active_counts[record.probe_name] += 1
+
+        # Sort probes by active scan count (least-busy first)
+        candidates = sorted(active_counts, key=active_counts.get)
+
+        selected = candidates[0]
+
+        # Anti-starvation: if same probe hit max consecutive, pick next candidate
+        if (len(candidates) > 1
+                and selected == self._last_probe
+                and self._consecutive_count >= max_consecutive):
+            selected = candidates[1]
+            log.info("probe_anti_starvation",
+                     skipped=self._last_probe,
+                     selected=selected,
+                     consecutive_limit=max_consecutive)
+
+        # Track consecutive selections
+        if selected == self._last_probe:
+            self._consecutive_count += 1
+        else:
+            self._consecutive_count = 1
+        self._last_probe = selected
+
+        log.info("probe_selected", probe=selected,
+                 consecutive=self._consecutive_count,
+                 active_counts=active_counts)
+        return selected
+
+    def get_probes_status(self) -> list[dict]:
+        """Get status of all probes with active scan counts."""
+        active_counts: dict[str, int] = {name: 0 for name in self._probes}
+        with self._lock:
+            for record in self._scans.values():
+                if record.completed_at is None and record.probe_name in active_counts:
+                    active_counts[record.probe_name] += 1
+        result = []
+        for name, cfg in self._probe_configs.items():
+            result.append({
+                "name": name,
+                "host": cfg.gvm.host,
+                "port": cfg.gvm.port,
+                "active_scans": active_counts.get(name, 0),
+            })
+        return result
 
     def get_scan(self, scan_id: str) -> Optional[ScanRecord]:
         """Get a scan record by ID."""
@@ -77,25 +158,35 @@ class ScanManager:
                     setattr(record, key, value)
 
     def create_scan(self, target: str, scan_type: ScanType,
-                    ports: Optional[list[int]] = None) -> ScanRecord:
+                    ports: Optional[list[int]] = None,
+                    probe_name: Optional[str] = None) -> ScanRecord:
         """
         Create a new scan record.
+        If probe_name is not specified, selects the least-busy probe.
 
         Returns the scan record. Call start_scan() to begin execution.
         """
+        if not probe_name:
+            probe_name = self._select_probe()
+        elif probe_name not in self._probes:
+            raise ValueError(f"Probe '{probe_name}' not found. Available: {list(self._probes.keys())}")
+
         record = ScanRecord(
             target=target,
             scan_type=scan_type,
             ports=ports,
+            probe_name=probe_name,
         )
 
         with self._lock:
             self._scans[record.scan_id] = record
 
         SCANS_SUBMITTED.labels(scan_type=scan_type.value).inc()
+        PROBE_SCANS_ROUTED.labels(probe=probe_name).inc()
 
         log.info("scan_created",
                  scan_id=record.scan_id,
+                 probe=probe_name,
                  target=target,
                  scan_type=scan_type.value)
 
@@ -119,8 +210,9 @@ class ScanManager:
         if not record:
             return
 
-        log.info("scan_executing", scan_id=scan_id, target=record.target)
+        log.info("scan_executing", scan_id=scan_id, target=record.target, probe=record.probe_name)
         SCANS_ACTIVE.inc()
+        SCANS_ACTIVE_PER_PROBE.labels(probe=record.probe_name).inc()
 
         try:
             # Run GVM operations in a thread to avoid blocking the event loop
@@ -138,6 +230,7 @@ class ScanManager:
             )
         finally:
             SCANS_ACTIVE.dec()
+            SCANS_ACTIVE_PER_PROBE.labels(probe=record.probe_name).dec()
 
     def _run_scan_blocking(self, scan_id: str):
         """
@@ -149,8 +242,10 @@ class ScanManager:
         if not record:
             return
 
+        client = self.get_probe_client(record.probe_name)
+
         try:
-            with self.gvm_client.connect() as gvm:
+            with client.connect() as gvm:
                 self._create_gvm_resources(gvm, scan_id, record)
                 self._start_and_poll(gvm, scan_id)
                 self._collect_report(gvm, scan_id)
@@ -159,7 +254,7 @@ class ScanManager:
 
         except ConnectionError as e:
             log.error("scan_failed", scan_id=scan_id, error=str(e))
-            GVM_CONNECTION_ERRORS.inc()
+            GVM_CONNECTION_ERRORS.labels(probe=record.probe_name).inc()
             SCANS_FAILED.inc()
             self._update_scan(
                 scan_id,
