@@ -265,27 +265,58 @@ class ScanManager:
 
     def _create_gvm_resources(self, gvm: GVMSession, scan_id: str,
                                record: ScanRecord):
-        """Create GVM target, port list (if directed), and task."""
-        port_list_id = None
+        """Create GVM target, port list (if directed), and task.
 
-        # Create custom port list for directed scans
-        if record.scan_type == ScanType.DIRECTED and record.ports:
-            port_list_id = gvm.create_port_list(
-                name=f"scan-{scan_id}-ports",
-                ports=record.ports
+        For scheduled targets (external_target_id set), reuses the GVM
+        target and port list from the targets table instead of creating
+        new ones every time.
+        """
+        target_id = None
+        port_list_id = None
+        reused = False
+
+        # Check if we can reuse GVM resources from a scheduled target
+        if record.external_target_id:
+            stored = self._db.get_target(record.external_target_id)
+            if stored:
+                target_id = stored.get("gvm_target_id")
+                port_list_id = stored.get("gvm_port_list_id")
+                if target_id:
+                    reused = True
+                    log.info("reusing_gvm_target",
+                             scan_id=scan_id,
+                             external_id=record.external_target_id,
+                             gvm_target_id=target_id)
+
+        if not target_id:
+            # Create custom port list for directed scans
+            if record.scan_type == ScanType.DIRECTED and record.ports:
+                port_list_id = gvm.create_port_list(
+                    name=f"scan-{scan_id}-ports",
+                    ports=record.ports
+                )
+
+            # Create new GVM target
+            target_id = gvm.create_target(
+                name=f"target-{record.external_target_id or scan_id}",
+                hosts=record.target,
+                port_list_id=port_list_id,
+                default_port_list_name=self.config.scan.default_port_list
             )
+
+            # Store GVM IDs on the scheduled target for future reuse
+            if record.external_target_id:
+                self._db.update_target_gvm_ids(
+                    record.external_target_id,
+                    gvm_target_id=target_id,
+                    gvm_port_list_id=port_list_id
+                )
+
+        self._update_scan(scan_id, gvm_target_id=target_id)
+        if port_list_id:
             self._update_scan(scan_id, gvm_port_list_id=port_list_id)
 
-        # Create target
-        target_id = gvm.create_target(
-            name=f"scan-{scan_id}-target",
-            hosts=record.target,
-            port_list_id=port_list_id,
-            default_port_list_name=self.config.scan.default_port_list
-        )
-        self._update_scan(scan_id, gvm_target_id=target_id)
-
-        # Create task
+        # Create task (always new — each scan run needs its own task)
         task_id = gvm.create_task(
             name=f"scan-{scan_id}",
             target_id=target_id,
@@ -298,7 +329,8 @@ class ScanManager:
                  scan_id=scan_id,
                  target_id=target_id,
                  task_id=task_id,
-                 port_list_id=port_list_id)
+                 port_list_id=port_list_id,
+                 reused_target=reused)
 
     def _start_and_poll(self, gvm: GVMSession, scan_id: str):
         """Start the GVM task and poll until it reaches a terminal status."""
@@ -408,29 +440,37 @@ class ScanManager:
                  low=summary.vulns_low)
 
     def _cleanup_gvm_resources(self, gvm: GVMSession, scan_id: str):
-        """Delete GVM resources (task, target, port list) created for this scan."""
+        """Delete GVM resources (task, target, port list) created for this scan.
+
+        For scheduled targets (external_target_id set), keeps the GVM target
+        and port list alive for reuse in future scans. Only the task is deleted.
+        """
         record = self.get_scan(scan_id)
         if not record:
             return
 
-        log.info("cleaning_gvm_resources", scan_id=scan_id)
+        is_scheduled = bool(record.external_target_id)
+        log.info("cleaning_gvm_resources", scan_id=scan_id, keep_target=is_scheduled)
 
+        # Always delete task (each scan creates a new one)
         if record.gvm_task_id:
             try:
                 gvm.delete_task(record.gvm_task_id)
             except Exception as e:
                 log.warning("cleanup_task_failed", scan_id=scan_id, error=str(e))
 
-        if record.gvm_target_id:
-            try:
-                gvm.delete_target(record.gvm_target_id)
-            except Exception as e:
-                log.warning("cleanup_target_failed", scan_id=scan_id, error=str(e))
+        # Keep target and port list for scheduled targets (reused across scans)
+        if not is_scheduled:
+            if record.gvm_target_id:
+                try:
+                    gvm.delete_target(record.gvm_target_id)
+                except Exception as e:
+                    log.warning("cleanup_target_failed", scan_id=scan_id, error=str(e))
 
-        if record.gvm_port_list_id:
-            try:
-                gvm.delete_port_list(record.gvm_port_list_id)
-            except Exception as e:
-                log.warning("cleanup_port_list_failed", scan_id=scan_id, error=str(e))
+            if record.gvm_port_list_id:
+                try:
+                    gvm.delete_port_list(record.gvm_port_list_id)
+                except Exception as e:
+                    log.warning("cleanup_port_list_failed", scan_id=scan_id, error=str(e))
 
         log.info("gvm_resources_cleaned", scan_id=scan_id)

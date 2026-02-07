@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS targets (
     enabled INTEGER NOT NULL DEFAULT 1,
     tags TEXT,
 
+    gvm_target_id TEXT,
+    gvm_port_list_id TEXT,
+
     last_scan_at TEXT,
     next_scan_at TEXT,
     last_scan_id TEXT,
@@ -284,6 +287,23 @@ class ScanDatabase:
                 (now,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def update_target_gvm_ids(self, external_id: str,
+                              gvm_target_id: str = None,
+                              gvm_port_list_id: str = None):
+        """Store GVM resource IDs on a target for reuse across scans."""
+        with self._lock:
+            if gvm_target_id:
+                self._conn.execute(
+                    "UPDATE targets SET gvm_target_id = ? WHERE external_id = ?",
+                    (gvm_target_id, external_id)
+                )
+            if gvm_port_list_id:
+                self._conn.execute(
+                    "UPDATE targets SET gvm_port_list_id = ? WHERE external_id = ?",
+                    (gvm_port_list_id, external_id)
+                )
+            self._conn.commit()
 
     def update_target_schedule(self, external_id: str, scan_id: str):
         """Update last/next scan times after scheduling a scan."""
