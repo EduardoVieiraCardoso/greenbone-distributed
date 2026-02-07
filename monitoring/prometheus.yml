@@ -6,6 +6,6 @@ scrape_configs:
   - job_name: "greenbone-adapter"
     metrics_path: "/metrics"
     static_configs:
-      - targets: ["adapter:8080"]
+      - targets: ["host.docker.internal:8088"]
         labels:
           service: "greenbone-adapter"
