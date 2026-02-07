@@ -1,0 +1,28 @@
+[Unit]
+Description=Greenbone Adapter - GVM Scan Management API
+Documentation=https://github.com/EduardoVieiraCardoso/greenbone-distributed
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/greenbone-distributed
+Environment=PATH=/root/greenbone-distributed/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/root/greenbone-distributed/venv/bin/python -m src.main
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=greenbone-adapter
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/root/greenbone-distributed
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
