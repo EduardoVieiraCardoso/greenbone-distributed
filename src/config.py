@@ -46,6 +46,7 @@ class ScanConfig:
     max_consecutive_same_probe: int = 3
     gvm_scan_config: str = "Full and fast"
     gvm_scanner: str = "OpenVAS Default"
+    alive_test: str = "ICMP & TCP-ACK Service Ping"
     db_path: str = "scans.db"
     scheduler_interval: int = 60  # seconds between scheduler checks
 

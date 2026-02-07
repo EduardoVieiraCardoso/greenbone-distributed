@@ -20,6 +20,28 @@ from gvm.connections import TLSConnection
 from gvm.protocols.gmp import Gmp
 import structlog
 
+try:
+    from gvm.protocols.gmp import AliveTest
+except ImportError:
+    try:
+        from gvm.protocols.gmp.requests import AliveTest
+    except ImportError:
+        AliveTest = None
+
+# Mapping from config string to AliveTest enum (if available)
+ALIVE_TEST_MAP = {
+    "Scan Config Default": "SCAN_CONFIG_DEFAULT",
+    "ICMP Ping": "ICMP_PING",
+    "TCP-ACK Service Ping": "TCP_ACK_SERVICE_PING",
+    "TCP-SYN Service Ping": "TCP_SYN_SERVICE_PING",
+    "ARP Ping": "ARP_PING",
+    "ICMP & TCP-ACK Service Ping": "ICMP_AND_TCP_ACK_SERVICE_PING",
+    "ICMP & ARP Ping": "ICMP_AND_ARP_PING",
+    "TCP-ACK Service & ARP Ping": "TCP_ACK_SERVICE_AND_ARP_PING",
+    "ICMP, TCP-ACK Service & ARP Ping": "ICMP_TCP_ACK_SERVICE_AND_ARP_PING",
+    "Consider Alive": "CONSIDER_ALIVE",
+}
+
 from .config import GVMConfig
 
 log = structlog.get_logger()
@@ -293,17 +315,37 @@ class GVMSession:
     # Targets
     # =========================================================================
 
+    def _resolve_alive_test(self, alive_test_name: str):
+        """Resolve alive test config string to python-gvm AliveTest enum."""
+        if not alive_test_name or AliveTest is None:
+            return None
+        enum_name = ALIVE_TEST_MAP.get(alive_test_name)
+        if not enum_name:
+            log.warning("unknown_alive_test", name=alive_test_name,
+                        available=list(ALIVE_TEST_MAP.keys()))
+            return None
+        try:
+            return AliveTest[enum_name]
+        except (KeyError, TypeError):
+            log.warning("alive_test_enum_not_found", name=enum_name)
+            return None
+
     def create_target(self, name: str, hosts: str,
                       port_list_id: Optional[str] = None,
-                      default_port_list_name: Optional[str] = None) -> str:
+                      default_port_list_name: Optional[str] = None,
+                      alive_test_name: Optional[str] = None) -> str:
         """Create a scan target. Returns target_id."""
-        log.info("creating_target", name=name, hosts=hosts)
+        log.info("creating_target", name=name, hosts=hosts, alive_test=alive_test_name)
 
         if not port_list_id:
             lookup_name = default_port_list_name or "All IANA assigned TCP"
             port_list_id = self.get_port_list_id(lookup_name)
 
         kwargs = {"name": name, "hosts": [hosts], "port_list_id": port_list_id}
+
+        alive_test = self._resolve_alive_test(alive_test_name)
+        if alive_test:
+            kwargs["alive_test"] = alive_test
 
         response = self._parse(self.gmp.create_target(**kwargs))
         self._check_response(response, "create_target")

@@ -39,7 +39,9 @@ scan:
   default_port_list: "All IANA assigned TCP"  # GVM port list for full scans
   gvm_scan_config: "Full and fast"           # GVM scan config name
   gvm_scanner: "OpenVAS Default"             # GVM scanner name
+  alive_test: "ICMP & TCP-ACK Service Ping"  # Host discovery method
   db_path: "scans.db"                        # SQLite database path
+  scheduler_interval: 60                     # seconds between scheduler checks
 
 # External target source (optional — enables auto-sync and scheduled scans)
 # source:
