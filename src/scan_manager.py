@@ -149,11 +149,13 @@ class ScanManager:
     def create_scan(self, target: str, scan_type: ScanType,
                     ports: Optional[list[int]] = None,
                     probe_name: Optional[str] = None,
-                    name: Optional[str] = None) -> ScanRecord:
+                    name: Optional[str] = None,
+                    scan_config: Optional[str] = None) -> ScanRecord:
         """
         Create a new scan record.
         If probe_name is not specified, selects the least-busy probe.
         If name is not provided, defaults to the target value.
+        If scan_config is not provided, uses config.yaml default.
 
         Returns the scan record. Call start_scan() to begin execution.
         """
@@ -168,6 +170,7 @@ class ScanManager:
             ports=ports,
             probe_name=probe_name,
             name=name or target,
+            scan_config=scan_config,
         )
 
         self._db.insert(record)
@@ -323,10 +326,11 @@ class ScanManager:
         # Create task (always new — each scan run needs its own task)
         short_id = scan_id[:8]
         task_name = f"{record.name or record.target}-{short_id}"
+        config_name = record.scan_config or self.config.scan.gvm_scan_config
         task_id = gvm.create_task(
             name=task_name,
             target_id=target_id,
-            config_name=self.config.scan.gvm_scan_config,
+            config_name=config_name,
             scanner_name=self.config.scan.gvm_scanner,
         )
         self._update_scan(scan_id, gvm_task_id=task_id)

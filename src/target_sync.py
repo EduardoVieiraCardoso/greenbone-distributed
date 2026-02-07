@@ -118,6 +118,7 @@ class ScanScheduler:
                     scan_type=scan_type,
                     ports=ports,
                     name=target["external_id"],
+                    scan_config=target.get("scan_config"),
                 )
 
                 self._db.update_target_schedule(

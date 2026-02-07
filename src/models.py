@@ -57,6 +57,7 @@ class ScanRequest(BaseModel):
     ports: Optional[list[int]] = Field(None, description="Specific ports (for directed scan)")
     probe_name: Optional[str] = Field(None, description="Target probe (auto-selects least-busy if omitted)")
     name: Optional[str] = Field(None, description="Friendly name for GVM dashboard (defaults to target)")
+    scan_config: Optional[str] = Field(None, description="GVM scan config name (default: Full and fast)")
 
     @field_validator("target")
     @classmethod
@@ -141,6 +142,7 @@ class ScanRecord(BaseModel):
     target: str
     scan_type: ScanType
     ports: Optional[list[int]] = None
+    scan_config: Optional[str] = None
     external_target_id: Optional[str] = None
 
     # GVM resource IDs

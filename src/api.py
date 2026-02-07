@@ -159,6 +159,7 @@ async def create_target(request: Request):
             host=body["host"],
             scan_type=body.get("scan_type", "full"),
             ports=body.get("ports"),
+            scan_config=body.get("scan_config"),
             criticality=body.get("criticality", "medium"),
             scan_frequency_hours=body.get("scan_frequency_hours", 24),
             tags=body.get("tags"),
@@ -190,6 +191,7 @@ async def create_scan(request: Request, body: ScanRequest):
             ports=body.ports,
             probe_name=body.probe_name,
             name=body.name,
+            scan_config=body.scan_config,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

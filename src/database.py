@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS scans (
     target TEXT NOT NULL,
     scan_type TEXT NOT NULL,
     ports TEXT,
+    scan_config TEXT,
     external_target_id TEXT,
 
     gvm_target_id TEXT,
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS targets (
     host TEXT NOT NULL,
     ports TEXT,
     scan_type TEXT NOT NULL DEFAULT 'full',
+    scan_config TEXT,
     criticality TEXT NOT NULL DEFAULT 'medium',
     criticality_weight INTEGER NOT NULL DEFAULT 2,
     scan_frequency_hours INTEGER NOT NULL DEFAULT 168,
@@ -100,8 +102,8 @@ class ScanDatabase:
             self._conn.execute(
                 """INSERT INTO scans
                    (scan_id, probe_name, name, target, scan_type, ports,
-                    external_target_id, gvm_status, gvm_progress, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    scan_config, external_target_id, gvm_status, gvm_progress, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     record.scan_id,
                     record.probe_name,
@@ -109,6 +111,7 @@ class ScanDatabase:
                     record.target,
                     record.scan_type.value,
                     json.dumps(record.ports) if record.ports else None,
+                    record.scan_config,
                     record.external_target_id,
                     record.gvm_status,
                     record.gvm_progress,
@@ -226,6 +229,7 @@ class ScanDatabase:
     def insert_manual_target(self, external_id: str, host: str,
                              scan_type: str = "full",
                              ports: list[int] = None,
+                             scan_config: str = None,
                              criticality: str = "medium",
                              scan_frequency_hours: int = 24,
                              tags: dict = None) -> dict:
@@ -245,12 +249,13 @@ class ScanDatabase:
 
             self._conn.execute(
                 """INSERT INTO targets
-                   (external_id, host, ports, scan_type, criticality,
-                    criticality_weight, scan_frequency_hours, enabled,
-                    tags, next_scan_at, synced_at, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (external_id, host, ports_json, scan_type, criticality,
-                 weight, scan_frequency_hours, 1, tags_json, now, now, now)
+                   (external_id, host, ports, scan_type, scan_config,
+                    criticality, criticality_weight, scan_frequency_hours,
+                    enabled, tags, next_scan_at, synced_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (external_id, host, ports_json, scan_type, scan_config,
+                 criticality, weight, scan_frequency_hours, 1, tags_json,
+                 now, now, now)
             )
             self._conn.commit()
 
@@ -358,6 +363,7 @@ class ScanDatabase:
             target=row["target"],
             scan_type=ScanType(row["scan_type"]),
             ports=json.loads(row["ports"]) if row["ports"] else None,
+            scan_config=row["scan_config"],
             external_target_id=row["external_target_id"],
             gvm_target_id=row["gvm_target_id"],
             gvm_task_id=row["gvm_task_id"],
