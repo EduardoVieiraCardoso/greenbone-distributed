@@ -180,6 +180,15 @@ class GVMSession:
             return ET.fromstring(response)
         return response
 
+    @staticmethod
+    def _check_response(response: ET.Element, operation: str) -> ET.Element:
+        """Validate GMP response status. Raises RuntimeError with GVM error message on failure."""
+        status = response.get("status", "")
+        if not status.startswith(("2", "1")):
+            status_text = response.get("status_text", "Unknown error")
+            raise RuntimeError(f"GVM {operation} failed (status {status}): {status_text}")
+        return response
+
     # =========================================================================
     # Scan Configs
     # =========================================================================
@@ -258,6 +267,7 @@ class GVMSession:
         port_range = ",".join(f"T:{p}" for p in ports)
         log.info("creating_port_list", name=name, ports=ports)
         response = self._parse(self.gmp.create_port_list(name=name, port_range=port_range))
+        self._check_response(response, "create_port_list")
         port_list_id = response.get("id")
         if not port_list_id:
             raise RuntimeError(f"GVM did not return an ID when creating port list '{name}'")
@@ -282,6 +292,7 @@ class GVMSession:
             kwargs["port_list_id"] = port_list_id
 
         response = self._parse(self.gmp.create_target(**kwargs))
+        self._check_response(response, "create_target")
         target_id = response.get("id")
         if not target_id:
             raise RuntimeError(f"GVM did not return an ID when creating target '{name}'")
@@ -313,6 +324,7 @@ class GVMSession:
             target_id=target_id,
             scanner_id=scanner_id
         ))
+        self._check_response(response, "create_task")
 
         task_id = response.get("id")
         if not task_id:
@@ -324,6 +336,7 @@ class GVMSession:
         """Start a scan task. Returns report_id."""
         log.info("starting_task", task_id=task_id)
         response = self._parse(self.gmp.start_task(task_id))
+        self._check_response(response, "start_task")
         report_id_elem = response.find("report_id")
         if report_id_elem is None or not report_id_elem.text:
             raise RuntimeError(f"GVM did not return a report_id when starting task {task_id}")
