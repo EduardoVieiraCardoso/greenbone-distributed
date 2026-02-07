@@ -173,13 +173,20 @@ class GVMSession:
             raise RuntimeError("GVM session is closed")
         return self._proto
 
+    @staticmethod
+    def _parse(response) -> ET.Element:
+        """Parse GMP response to an XML element (python-gvm 26.x returns strings)."""
+        if isinstance(response, str):
+            return ET.fromstring(response)
+        return response
+
     # =========================================================================
     # Scan Configs
     # =========================================================================
 
     def get_scan_configs(self) -> list[ScanConfigInfo]:
         """List available scan configurations."""
-        response = self.gmp.get_scan_configs()
+        response = self._parse(self.gmp.get_scan_configs())
         configs = []
         for config in response.findall(".//config"):
             name_elem = config.find("name")
@@ -207,7 +214,7 @@ class GVMSession:
 
     def get_scanners(self) -> list[ScannerInfo]:
         """List available scanners."""
-        response = self.gmp.get_scanners()
+        response = self._parse(self.gmp.get_scanners())
         scanners = []
         for scanner in response.findall(".//scanner"):
             name_elem = scanner.find("name")
@@ -235,7 +242,7 @@ class GVMSession:
 
     def get_port_lists(self) -> list[PortListInfo]:
         """List available port lists."""
-        response = self.gmp.get_port_lists()
+        response = self._parse(self.gmp.get_port_lists())
         port_lists = []
         for pl in response.findall(".//port_list"):
             name_elem = pl.find("name")
@@ -250,7 +257,7 @@ class GVMSession:
         """Create a custom port list. Returns port_list_id."""
         port_range = ",".join(f"T:{p}" for p in ports)
         log.info("creating_port_list", name=name, ports=ports)
-        response = self.gmp.create_port_list(name=name, port_range=port_range)
+        response = self._parse(self.gmp.create_port_list(name=name, port_range=port_range))
         port_list_id = response.get("id")
         if not port_list_id:
             raise RuntimeError(f"GVM did not return an ID when creating port list '{name}'")
@@ -274,7 +281,7 @@ class GVMSession:
         if port_list_id:
             kwargs["port_list_id"] = port_list_id
 
-        response = self.gmp.create_target(**kwargs)
+        response = self._parse(self.gmp.create_target(**kwargs))
         target_id = response.get("id")
         if not target_id:
             raise RuntimeError(f"GVM did not return an ID when creating target '{name}'")
@@ -300,12 +307,12 @@ class GVMSession:
 
         log.info("creating_task", name=name, target_id=target_id)
 
-        response = self.gmp.create_task(
+        response = self._parse(self.gmp.create_task(
             name=name,
             config_id=config_id,
             target_id=target_id,
             scanner_id=scanner_id
-        )
+        ))
 
         task_id = response.get("id")
         if not task_id:
@@ -316,7 +323,7 @@ class GVMSession:
     def start_task(self, task_id: str) -> str:
         """Start a scan task. Returns report_id."""
         log.info("starting_task", task_id=task_id)
-        response = self.gmp.start_task(task_id)
+        response = self._parse(self.gmp.start_task(task_id))
         report_id_elem = response.find("report_id")
         if report_id_elem is None or not report_id_elem.text:
             raise RuntimeError(f"GVM did not return a report_id when starting task {task_id}")
@@ -340,7 +347,7 @@ class GVMSession:
             (status_text, progress) where status_text is the raw GVM status
             string and progress is 0-100.
         """
-        response = self.gmp.get_task(task_id)
+        response = self._parse(self.gmp.get_task(task_id))
 
         status_elem = response.find(".//status")
         if status_elem is None or not status_elem.text:
@@ -363,7 +370,7 @@ class GVMSession:
         log.info("getting_report", report_id=report_id)
 
         # Find XML report format ID
-        formats = self.gmp.get_report_formats()
+        formats = self._parse(self.gmp.get_report_formats())
         xml_format_id = None
         for fmt in formats.findall(".//report_format"):
             name_elem = fmt.find("name")
@@ -374,12 +381,12 @@ class GVMSession:
         if not xml_format_id:
             raise ValueError("XML report format not found in GVM")
 
-        response = self.gmp.get_report(
+        response = self._parse(self.gmp.get_report(
             report_id=report_id,
             report_format_id=xml_format_id,
             ignore_pagination=True,
             details=True
-        )
+        ))
 
         report_elem = response.find(".//report")
         if report_elem is None:
