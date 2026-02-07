@@ -19,6 +19,7 @@ from typing import Optional
 import structlog
 
 from .config import AppConfig, ProbeConfig
+from .database import ScanDatabase
 from .gvm_client import GVMClient, GVMSession
 from .metrics import (
     SCANS_SUBMITTED, SCANS_COMPLETED, SCANS_FAILED,
@@ -58,7 +59,7 @@ class ScanManager:
         for probe_cfg in config.probes:
             self._probes[probe_cfg.name] = GVMClient(probe_cfg.gvm)
             self._probe_configs[probe_cfg.name] = probe_cfg
-        self._scans: dict[str, ScanRecord] = {}
+        self._db = ScanDatabase()
         self._lock = threading.Lock()
         self._last_probe: Optional[str] = None
         self._consecutive_count: int = 0
@@ -75,6 +76,14 @@ class ScanManager:
     def probe_names(self) -> list[str]:
         return list(self._probes.keys())
 
+    def _active_counts(self) -> dict[str, int]:
+        """Count active (not completed) scans per probe."""
+        counts: dict[str, int] = {name: 0 for name in self._probes}
+        for record in self._db.list_all():
+            if record.completed_at is None and record.probe_name in counts:
+                counts[record.probe_name] += 1
+        return counts
+
     def _select_probe(self) -> str:
         """
         Select the least-busy probe with anti-starvation.
@@ -86,11 +95,7 @@ class ScanManager:
         """
         max_consecutive = self.config.scan.max_consecutive_same_probe
 
-        active_counts: dict[str, int] = {name: 0 for name in self._probes}
-        with self._lock:
-            for record in self._scans.values():
-                if record.completed_at is None and record.probe_name in active_counts:
-                    active_counts[record.probe_name] += 1
+        active_counts = self._active_counts()
 
         # Sort probes by active scan count (least-busy first)
         candidates = sorted(active_counts, key=active_counts.get)
@@ -121,11 +126,7 @@ class ScanManager:
 
     def get_probes_status(self) -> list[dict]:
         """Get status of all probes with active scan counts."""
-        active_counts: dict[str, int] = {name: 0 for name in self._probes}
-        with self._lock:
-            for record in self._scans.values():
-                if record.completed_at is None and record.probe_name in active_counts:
-                    active_counts[record.probe_name] += 1
+        active_counts = self._active_counts()
         result = []
         for name, cfg in self._probe_configs.items():
             result.append({
@@ -138,24 +139,15 @@ class ScanManager:
 
     def get_scan(self, scan_id: str) -> Optional[ScanRecord]:
         """Get a scan record by ID."""
-        with self._lock:
-            record = self._scans.get(scan_id)
-            if record:
-                return record.model_copy()
-            return None
+        return self._db.get(scan_id)
 
     def list_scans(self) -> list[ScanRecord]:
         """List all scan records."""
-        with self._lock:
-            return [r.model_copy() for r in self._scans.values()]
+        return self._db.list_all()
 
     def _update_scan(self, scan_id: str, **kwargs):
         """Update scan record fields."""
-        with self._lock:
-            record = self._scans.get(scan_id)
-            if record:
-                for key, value in kwargs.items():
-                    setattr(record, key, value)
+        self._db.update(scan_id, **kwargs)
 
     def create_scan(self, target: str, scan_type: ScanType,
                     ports: Optional[list[int]] = None,
@@ -178,8 +170,7 @@ class ScanManager:
             probe_name=probe_name,
         )
 
-        with self._lock:
-            self._scans[record.scan_id] = record
+        self._db.insert(record)
 
         SCANS_SUBMITTED.labels(scan_type=scan_type.value).inc()
         PROBE_SCANS_ROUTED.labels(probe=probe_name).inc()
