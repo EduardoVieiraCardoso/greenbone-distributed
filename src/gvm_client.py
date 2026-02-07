@@ -2,7 +2,7 @@
 GVM Client — Interface with Greenbone Vulnerability Manager via GMP protocol.
 
 All interactions use the standard GMP protocol. No modifications to GVM.
-Compatible with python-gvm >= 24.0.
+Compatible with python-gvm >= 26.0.
 
 Usage:
     client = GVMClient(config)
@@ -18,7 +18,6 @@ from contextlib import contextmanager
 
 from gvm.connections import TLSConnection
 from gvm.protocols.gmp import Gmp
-from gvm.transforms import EtreeTransform
 import structlog
 
 from .config import GVMConfig
@@ -137,16 +136,16 @@ class GVMClient:
             timeout=self.timeout
         )
 
-        transform = EtreeTransform()
-        gmp = Gmp(connection=connection, transform=transform)
-        gmp.__enter__()
+        gmp = Gmp(connection=connection)
+        gmp.connect()
 
         try:
-            gmp.authenticate(self.username, self.password)
+            proto = gmp.determine_supported_gmp()
+            proto.authenticate(self.username, self.password)
             log.info("gvm_connected", host=self.host)
-            return GVMSession(gmp)
+            return GVMSession(gmp, proto)
         except Exception:
-            gmp.__exit__(None, None, None)
+            gmp.disconnect()
             raise
 
 
@@ -154,23 +153,25 @@ class GVMSession:
     """
     An authenticated GVM session.
 
-    Wraps the Gmp instance and provides typed methods for scan operations.
+    Wraps the Gmp connection and versioned protocol object.
     """
 
-    def __init__(self, gmp: Gmp):
+    def __init__(self, gmp: Gmp, proto):
         self._gmp = gmp
+        self._proto = proto
 
     def close(self):
         """Close the GMP connection."""
         if self._gmp:
-            self._gmp.__exit__(None, None, None)
+            self._gmp.disconnect()
             self._gmp = None
+            self._proto = None
 
     @property
-    def gmp(self) -> Gmp:
-        if not self._gmp:
+    def gmp(self):
+        if not self._proto:
             raise RuntimeError("GVM session is closed")
-        return self._gmp
+        return self._proto
 
     # =========================================================================
     # Scan Configs
