@@ -196,12 +196,13 @@ class ScanDatabase:
             if existing:
                 self._conn.execute(
                     """UPDATE targets SET
-                       host=?, ports=?, scan_type=?, criticality=?,
-                       criticality_weight=?, scan_frequency_hours=?,
-                       enabled=?, tags=?, synced_at=?
+                       host=?, ports=?, scan_type=?, scan_config=?,
+                       criticality=?, criticality_weight=?,
+                       scan_frequency_hours=?, enabled=?, tags=?, synced_at=?
                        WHERE external_id=?""",
                     (
                         target["host"], ports, target.get("scan_type", "full"),
+                        target.get("scan_config"),
                         target.get("criticality", "medium"), weight,
                         target.get("scan_frequency_hours", 168),
                         1 if target.get("enabled", True) else 0,

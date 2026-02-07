@@ -215,13 +215,8 @@ class ScanManager:
                 None, self._run_scan_blocking, scan_id
             )
         except Exception as e:
+            # Only log here — SCANS_FAILED is already counted in _run_scan_blocking
             log.error("scan_execution_error", scan_id=scan_id, error=str(e))
-            SCANS_FAILED.inc()
-            self._update_scan(
-                scan_id,
-                error=str(e),
-                completed_at=datetime.now(timezone.utc)
-            )
         finally:
             SCANS_ACTIVE.dec()
             SCANS_ACTIVE_PER_PROBE.labels(probe=record.probe_name).dec()

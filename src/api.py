@@ -101,18 +101,23 @@ def create_app(config: AppConfig) -> FastAPI:
 async def health(request: Request):
     """Health check — tests connectivity to all GVM probes."""
     manager: ScanManager = request.app.state.scan_manager
-    probes_status = {}
-    all_healthy = True
 
-    for name in manager.probe_names:
-        try:
-            client = manager.get_probe_client(name)
-            with client.connect() as gvm:
-                gvm.get_scanners()
-            probes_status[name] = "connected"
-        except Exception as e:
-            probes_status[name] = str(e)
-            all_healthy = False
+    def _check_probes():
+        probes_status = {}
+        all_healthy = True
+        for name in manager.probe_names:
+            try:
+                client = manager.get_probe_client(name)
+                with client.connect() as gvm:
+                    gvm.get_scanners()
+                probes_status[name] = "connected"
+            except Exception as e:
+                probes_status[name] = str(e)
+                all_healthy = False
+        return probes_status, all_healthy
+
+    loop = asyncio.get_running_loop()
+    probes_status, all_healthy = await loop.run_in_executor(None, _check_probes)
 
     result = {"status": "healthy" if all_healthy else "degraded", "probes": probes_status}
 
