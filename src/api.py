@@ -90,11 +90,16 @@ def create_app(config: AppConfig) -> FastAPI:
     app.add_api_route("/targets", create_target, methods=["POST"])
     app.add_api_route("/targets", list_targets, methods=["GET"])
     app.add_api_route("/targets/{external_id}", get_target, methods=["GET"])
+    app.add_api_route("/targets/{external_id}", update_target, methods=["PUT"])
+    app.add_api_route("/targets/{external_id}", delete_target, methods=["DELETE"])
+    app.add_api_route("/targets/{external_id}/scans", list_target_scans, methods=["GET"])
+    app.add_api_route("/status", get_status, methods=["GET"])
     app.add_api_route("/scans", create_scan, methods=["POST"],
                       response_model=ScanCreatedResponse)
     app.add_api_route("/scans", list_scans, methods=["GET"])
     app.add_api_route("/scans/{scan_id}", get_scan_status, methods=["GET"],
                       response_model=ScanStatusResponse)
+    app.add_api_route("/scans/{scan_id}", delete_scan, methods=["DELETE"])
     app.add_api_route("/scans/{scan_id}/report", get_scan_report, methods=["GET"],
                       response_model=ScanResultResponse)
 
@@ -187,6 +192,74 @@ async def get_target(request: Request, external_id: str):
     if not target:
         raise HTTPException(status_code=404, detail="Target not found")
     return target
+
+
+async def update_target(request: Request, external_id: str):
+    """Update a target's fields (host, scan_config, criticality, etc.)."""
+    manager: ScanManager = request.app.state.scan_manager
+    body = await request.json()
+    result = manager._db.update_target(external_id, **body)
+    if not result:
+        raise HTTPException(status_code=404, detail="Target not found")
+    return result
+
+
+async def delete_target(request: Request, external_id: str):
+    """Delete a target by external ID."""
+    manager: ScanManager = request.app.state.scan_manager
+    deleted = manager._db.delete_target(external_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Target not found")
+    return {"detail": f"Target '{external_id}' deleted"}
+
+
+async def list_target_scans(request: Request, external_id: str):
+    """List scan history for a specific target."""
+    manager: ScanManager = request.app.state.scan_manager
+    target = manager._db.get_target(external_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target not found")
+    limit = int(request.query_params.get("limit", 20))
+    scans = manager._db.list_scans_for_target(external_id, limit=limit)
+    return {
+        "external_id": external_id,
+        "total": len(scans),
+        "scans": [
+            {
+                "scan_id": s.scan_id,
+                "probe_name": s.probe_name,
+                "name": s.name,
+                "scan_config": s.scan_config,
+                "gvm_status": s.gvm_status,
+                "gvm_progress": s.gvm_progress,
+                "created_at": s.created_at,
+                "completed_at": s.completed_at,
+                "summary": s.summary,
+                "error": s.error,
+            }
+            for s in scans
+        ]
+    }
+
+
+async def get_status(request: Request):
+    """Operational dashboard: active scans, due targets, recent errors."""
+    manager: ScanManager = request.app.state.scan_manager
+    return manager._db.get_status_summary()
+
+
+async def delete_scan(request: Request, scan_id: str):
+    """Delete a completed scan."""
+    manager: ScanManager = request.app.state.scan_manager
+    record = manager.get_scan(scan_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    if record.completed_at is None:
+        raise HTTPException(status_code=409, detail="Cannot delete an active scan")
+    deleted = manager._db.delete_scan(scan_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete scan")
+    return {"detail": f"Scan '{scan_id}' deleted"}
 
 
 async def create_target(request: Request):

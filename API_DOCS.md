@@ -395,7 +395,8 @@ Detalhes de um target especifico pelo ID da API externa.
 ### Exemplo
 
 ```bash
-curl http://192.168.15.249:8088/targets/asset-001
+
+
 ```
 
 ### Response

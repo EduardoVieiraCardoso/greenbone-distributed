@@ -404,6 +404,112 @@ class ScanDatabase:
             ).fetchone()
         return dict(row) if row else None
 
+    def update_target(self, external_id: str, **kwargs) -> Optional[dict]:
+        """Update specific fields of a target. Returns updated target or None."""
+        if not kwargs:
+            return self.get_target(external_id)
+
+        allowed = {"host", "ports", "scan_type", "scan_config", "criticality",
+                    "scan_frequency_hours", "enabled", "tags"}
+        fields = {}
+        for k, v in kwargs.items():
+            if k not in allowed:
+                continue
+            if k == "ports":
+                fields["ports"] = json.dumps(v) if v else None
+            elif k == "tags":
+                fields["tags"] = json.dumps(v) if v else None
+            elif k == "criticality":
+                fields["criticality"] = v
+                fields["criticality_weight"] = CRITICALITY_WEIGHTS.get(v, 2)
+            else:
+                fields[k] = v
+
+        if not fields:
+            return self.get_target(external_id)
+
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [external_id]
+
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE targets SET {set_clause} WHERE external_id = ?",
+                values
+            )
+            self._conn.commit()
+            if cursor.rowcount == 0:
+                return None
+        return self.get_target(external_id)
+
+    def delete_target(self, external_id: str) -> bool:
+        """Delete a target. Returns True if deleted."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM targets WHERE external_id = ?",
+                (external_id,)
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_scan(self, scan_id: str) -> bool:
+        """Delete a completed scan. Returns True if deleted."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM scans WHERE scan_id = ? AND completed_at IS NOT NULL",
+                (scan_id,)
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def list_scans_for_target(self, external_id: str,
+                               limit: int = 20) -> list[ScanRecord]:
+        """List scans for a specific target (without report_xml)."""
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT {self._LIST_COLUMNS} FROM scans
+                    WHERE external_target_id = ?
+                    ORDER BY created_at DESC LIMIT ?""",
+                (external_id, limit)
+            ).fetchall()
+        return [self._row_to_record_light(r) for r in rows]
+
+    def get_status_summary(self) -> dict:
+        """Get operational status summary."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            active_scans = self._conn.execute(
+                "SELECT COUNT(*) FROM scans WHERE completed_at IS NULL"
+            ).fetchone()[0]
+            total_scans = self._conn.execute(
+                "SELECT COUNT(*) FROM scans"
+            ).fetchone()[0]
+            total_targets = self._conn.execute(
+                "SELECT COUNT(*) FROM targets WHERE enabled = 1"
+            ).fetchone()[0]
+            due_targets = self._conn.execute(
+                """SELECT COUNT(*) FROM targets
+                   WHERE enabled = 1 AND next_scan_at <= ?""",
+                (now,)
+            ).fetchone()[0]
+            recent_errors = self._conn.execute(
+                """SELECT scan_id, name, target, error, completed_at
+                   FROM scans WHERE error IS NOT NULL
+                   ORDER BY completed_at DESC LIMIT 5"""
+            ).fetchall()
+            next_targets = self._conn.execute(
+                """SELECT external_id, host, criticality, next_scan_at
+                   FROM targets WHERE enabled = 1
+                   ORDER BY next_scan_at ASC LIMIT 5"""
+            ).fetchall()
+        return {
+            "active_scans": active_scans,
+            "total_scans": total_scans,
+            "total_targets_enabled": total_targets,
+            "due_targets": due_targets,
+            "recent_errors": [dict(r) for r in recent_errors],
+            "next_scheduled": [dict(r) for r in next_targets],
+        }
+
     # =========================================================================
     # Scans
     # =========================================================================
